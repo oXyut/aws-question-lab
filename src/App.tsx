@@ -21,7 +21,6 @@ import {
   Search,
   Send,
   Settings2,
-  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -35,6 +34,7 @@ import type {
 } from '../shared/schema';
 import { demoDocument } from '../shared/demo';
 import { ExplanationViewer } from './components/ExplanationViewer';
+import { GenerationProgress } from './components/GenerationProgress';
 
 type ApiError = Error & { code?: string };
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -79,17 +79,6 @@ const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : '処理を完了できませんでした。';
 const dateLabel = (date: string) =>
   new Date(date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
-const stages: Record<string, string> = {
-  queued: '開始を待っています',
-  extracting: '問題文を読み取り中',
-  reading: '問題文を読み取り中',
-  generating: '解説を生成中',
-  researching: 'AWS公式資料を調査中',
-  validating: '参照と出典を検証中',
-  verifying: 'AWS公式本文と照合中',
-  saving: '解説を保存中',
-  completed: '完了',
-};
 
 function DraftEditor({
   draft,
@@ -761,63 +750,20 @@ export default function App() {
           </div>
         )}
         {job && (
-          <section className={`job-status job-${job.status}`} aria-live="polite">
-            <div className="job-icon">
-              {isActive(job) ? (
-                <Loader2 size={20} className="spin" />
-              ) : job.status === 'completed' ? (
-                <Check size={20} />
-              ) : job.status === 'cancelled' ? (
-                <Square size={18} />
-              ) : (
-                <CircleError />
-              )}
-            </div>
-            <div className="job-copy">
-              <strong>
-                {isActive(job)
-                  ? (stages[job.stage] ?? job.stage)
-                  : job.status === 'completed'
-                    ? job.kind === 'extract'
-                      ? '問題の読み取りが完了しました'
-                      : '解説を保存しました'
-                    : job.status === 'cancelled'
-                      ? '生成を中断しました'
-                      : '生成を完了できませんでした'}
-              </strong>
-              <p>{job.error?.message ?? job.message}</p>
-            </div>
-            {isActive(job) ? (
-              <button className="secondary-button compact" onClick={() => void cancel()}>
-                <Square size={13} />
-                中断
-              </button>
-            ) : job.status === 'failed' || job.status === 'cancelled' ? (
-              <button
-                className="secondary-button compact"
-                disabled={submitting}
-                onClick={() => void runJob(`/api/jobs/${job.id}/retry`)}
-              >
-                <RefreshCw size={14} />
-                再試行
-              </button>
-            ) : (
-              <button
-                className="icon-button"
-                aria-label="完了通知を閉じる"
-                onClick={() => {
-                  setJob(null);
-                  try {
-                    localStorage.removeItem(JOB_KEY);
-                  } catch {
-                    /* optional */
-                  }
-                }}
-              >
-                <X size={16} />
-              </button>
-            )}
-          </section>
+          <GenerationProgress
+            job={job}
+            retrying={submitting}
+            onCancel={() => void cancel()}
+            onRetry={() => void runJob(`/api/jobs/${job.id}/retry`)}
+            onDismiss={() => {
+              setJob(null);
+              try {
+                localStorage.removeItem(JOB_KEY);
+              } catch {
+                /* Storage is optional. */
+              }
+            }}
+          />
         )}
         {document && revision ? (
           <>

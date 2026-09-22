@@ -18,6 +18,7 @@ export type Executor = (
   payload: JobPayload,
   signal: AbortSignal,
   progress: (stage: string, message: string) => void,
+  context?: { jobId: string },
 ) => Promise<NonNullable<GenerationJob['result']>>;
 export const isTerminal = (status: GenerationJob['status']) =>
   ['completed', 'failed', 'cancelled'].includes(status);
@@ -91,6 +92,7 @@ export class JobManager {
       message: '生成を準備しています。',
       createdAt: now,
       updatedAt: now,
+      activity: [{ at: now, stage: 'queued', message: '生成を準備しています。' }],
     };
     const record = { job, payload: structuredClone(payload) };
     this.activeJobId = id;
@@ -109,7 +111,18 @@ export class JobManager {
     return snapshot;
   }
   private update(record: JobRecord, patch: Partial<GenerationJob>, emit = true) {
-    record.job = { ...record.job, ...patch, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const activity = record.job.activity || [];
+    const last = activity.at(-1);
+    const stage = patch.stage ?? record.job.stage;
+    const message = patch.message ?? record.job.message;
+    const changed = last?.stage !== stage || last.message !== message;
+    record.job = {
+      ...record.job,
+      ...patch,
+      updatedAt: now,
+      activity: changed ? [...activity, { at: now, stage, message }].slice(-40) : activity,
+    };
     if (emit) this.events.emit(record.job.id, this.get(record.job.id));
   }
   private async run(record: JobRecord, controller: AbortController) {
@@ -120,13 +133,21 @@ export class JobManager {
     });
     try {
       await this.persist(record);
-      const result = await this.execute(record.payload, controller.signal, (stage, message) => {
-        if (controller.signal.aborted) return;
-        this.update(record, { stage, message });
-        // Progress persistence is best effort; final state is always awaited below.
-        void this.persist(record).catch(() => {});
-      });
-      if (controller.signal.aborted) throw new AppError('CANCELLED', '生成を中断しました。');
+      const result = await this.execute(
+        record.payload,
+        controller.signal,
+        (stage, message) => {
+          if (controller.signal.aborted) return;
+          this.update(record, { stage, message });
+          // Progress persistence is best effort; final state is always awaited below.
+          void this.persist(record).catch(() => {});
+        },
+        { jobId: record.job.id },
+      );
+      // A document result means the executor has crossed its durable commit boundary.
+      // A late cancel must not hide that document and invite a duplicate retry.
+      if (controller.signal.aborted && !result.documentId)
+        throw new AppError('CANCELLED', '生成を中断しました。');
       this.update(
         record,
         { status: 'completed', stage: 'completed', message: '完了しました。', result },
@@ -220,6 +241,7 @@ export class JobManager {
     for (const record of related) {
       await this.writes.get(record.job.id)?.catch(() => {});
       await this.storage.deleteJson('jobs', record.job.id);
+      await this.storage.deleteJson('diagnostics', record.job.id);
       this.records.delete(record.job.id);
       this.writes.delete(record.job.id);
       if (record.payload.kind === 'extract')

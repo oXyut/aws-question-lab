@@ -19,18 +19,18 @@ export class Storage {
   constructor(readonly root: string) {}
   async init() {
     await Promise.all(
-      ['documents', 'jobs', 'images', 'runtime'].map((d) =>
+      ['documents', 'jobs', 'images', 'runtime', 'diagnostics'].map((d) =>
         mkdir(join(this.root, d), { recursive: true, mode: 0o700 }),
       ),
     );
   }
-  async writeJson(area: 'documents' | 'jobs', id: string, value: unknown) {
+  async writeJson(area: 'documents' | 'jobs' | 'diagnostics', id: string, value: unknown) {
     const target = join(this.root, area, `${validId(id)}.json`);
     const temp = `${target}.${makeId()}.tmp`;
     await writeFile(temp, JSON.stringify(value, null, 2), { mode: 0o600 });
     await rename(temp, target);
   }
-  async readJson<T>(area: 'documents' | 'jobs', id: string): Promise<T> {
+  async readJson<T>(area: 'documents' | 'jobs' | 'diagnostics', id: string): Promise<T> {
     try {
       return JSON.parse(await readFile(join(this.root, area, `${validId(id)}.json`), 'utf8')) as T;
     } catch (error) {
@@ -39,7 +39,7 @@ export class Storage {
       throw error;
     }
   }
-  async listIds(area: 'documents' | 'jobs'): Promise<string[]> {
+  async listIds(area: 'documents' | 'jobs' | 'diagnostics'): Promise<string[]> {
     return (await readdir(join(this.root, area)))
       .filter((f) => f.endsWith('.json'))
       .map((f) => f.slice(0, -5))
@@ -74,7 +74,7 @@ export class Storage {
   async deleteDocument(id: string) {
     await this.deleteJson('documents', id);
   }
-  async deleteJson(area: 'documents' | 'jobs', id: string) {
+  async deleteJson(area: 'documents' | 'jobs' | 'diagnostics', id: string) {
     try {
       await unlink(join(this.root, area, `${validId(id)}.json`));
     } catch (e) {

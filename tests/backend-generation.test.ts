@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../server/storage.ts';
@@ -59,10 +59,77 @@ test('invalid reference output is rejected before persistence', async (t) => {
       { kind: 'generate', question: demoDocument.question },
       new AbortController().signal,
       () => {},
+      { jobId: 'rejected-reference-job' },
     ),
     (error: unknown) => (error as { code?: string }).code === 'INVALID_REFERENCES',
   );
   assert.deepEqual(await storage.documents(), []);
+  const diagnostic = await storage.readJson<{
+    status: string;
+    jobId: string;
+    rawOutput: typeof explanation;
+    repairedOutput: typeof explanation;
+    error: { code: string; message: string };
+  }>('diagnostics', 'rejected-reference-job');
+  assert.equal(diagnostic.status, 'failed');
+  assert.equal(diagnostic.jobId, 'rejected-reference-job');
+  assert.deepEqual(diagnostic.rawOutput, explanation);
+  assert.deepEqual(diagnostic.repairedOutput, explanation);
+  assert.equal(diagnostic.error.code, 'INVALID_REFERENCES');
+  assert.match(diagnostic.error.message, /引用が問題文にありません/);
+});
+
+test('generation repairs display links once, retains raw diagnostics and publishes validated output', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'question-lab-generation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new Storage(root);
+  await storage.init();
+  const explanation = structuredClone(demoDocument.revisions[0].explanation);
+  explanation.evaluations[0].checks[0].edgeIds = ['invalid-display-edge'];
+  explanation.evaluations[0].checks[0].nodeIds = ['b-engine'];
+  let calls = 0;
+  const fake = {
+    explain: async () => {
+      calls++;
+      return { value: explanation, searched: false };
+    },
+  } as unknown as CodexAdapter;
+  const stages: string[] = [];
+  const result = await createExecutor(storage, fake)(
+    { kind: 'generate', question: demoDocument.question },
+    new AbortController().signal,
+    (stage) => {
+      stages.push(stage);
+    },
+    { jobId: 'repaired-reference-job' },
+  );
+  assert.equal(calls, 1, 'repair must not make another model call');
+  const saved = (await storage.document(result.documentId!)).revisions[0].explanation;
+  assert.deepEqual(saved.evaluations[0].checks[0].edgeIds, ['a-query']);
+  assert.deepEqual(saved.evaluations[0].checks[0].nodeIds, ['a-analyst', 'a-athena']);
+  assert.ok(saved.caveats.some((caveat) => caveat.includes('図の表示リンクを修復')));
+  assert.ok(stages.indexOf('validating') < stages.indexOf('repairing'));
+  assert.ok(stages.indexOf('repairing') < stages.indexOf('verifying'));
+  assert.equal(stages.at(-1), 'saving');
+  const diagnostic = await storage.readJson<{
+    status: string;
+    jobId: string;
+    rawOutput: typeof explanation;
+    repairedOutput: typeof explanation;
+    repairs: { removedIds: string[]; fallbackIds: string[] }[];
+    result: typeof result;
+  }>('diagnostics', 'repaired-reference-job');
+  assert.equal(diagnostic.status, 'completed');
+  assert.equal(diagnostic.jobId, 'repaired-reference-job');
+  assert.deepEqual(diagnostic.rawOutput, explanation);
+  assert.deepEqual(diagnostic.rawOutput.evaluations[0].checks[0].edgeIds, ['invalid-display-edge']);
+  assert.deepEqual(diagnostic.repairedOutput.evaluations[0].checks[0].edgeIds, ['a-query']);
+  assert.equal(diagnostic.repairs.length, 2);
+  assert.deepEqual(diagnostic.result, result);
+  assert.equal(
+    (await stat(join(root, 'diagnostics', 'repaired-reference-job.json'))).mode & 0o777,
+    0o600,
+  );
 });
 
 test('extraction preserves uploaded image IDs and supplied original explanation', async (t) => {

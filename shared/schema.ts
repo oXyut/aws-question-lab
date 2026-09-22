@@ -162,6 +162,7 @@ export type GenerationJob = {
   message: string;
   createdAt: string;
   updatedAt: string;
+  activity?: Array<{ at: string; stage: string; message: string }>;
   error?: { code: string; message: string };
   result?: { draft?: QuestionDraft; documentId?: string; revisionId?: string };
 };

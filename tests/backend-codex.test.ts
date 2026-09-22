@@ -37,6 +37,51 @@ test('public CLI errors classify failures without exposing stderr', () => {
   assert.equal(safeCliError('usage_limit_reached').code, 'USAGE_LIMIT');
   assert.equal(safeCliError('stream disconnected: network').code, 'NETWORK');
 });
+test('progress exposes actual search actions and assistant updates but never reasoning or JSON payloads', () => {
+  const event = (item: unknown, type = 'item.completed') =>
+    parseCliEvent(JSON.stringify({ type, item }));
+  const start = event(
+    {
+      type: 'web_search',
+      action: { type: 'search', queries: ['site:docs.aws.amazon.com S3', 'Athena SQL'] },
+    },
+    'item.started',
+  );
+  assert.match(start.progress!.message, /S3/);
+  assert.equal(start.searched, undefined);
+  assert.match(
+    event({
+      type: 'web_search',
+      action: {
+        type: 'open_page',
+        url: 'https://docs.aws.amazon.com/athena/?token=not-for-ui#fragment',
+      },
+    }).progress!.message,
+    /docs.aws.amazon.com\/athena\//,
+  );
+  assert.ok(
+    !event({
+      type: 'web_search',
+      action: { url: 'https://docs.aws.amazon.com/athena/?token=not-for-ui' },
+    }).progress!.message.includes('token'),
+  );
+  assert.match(
+    event({ type: 'agent_message', text: '公式資料を確認しました。図を作成します。' }).progress!
+      .message,
+    /図を作成/,
+  );
+  assert.equal(
+    event({ type: 'agent_message', text: '{"private":"question content"}' }).progress!.stage,
+    'composing',
+  );
+  assert.ok(
+    !event({
+      type: 'agent_message',
+      text: '{"private":"question content"}',
+    }).progress!.message.includes('private'),
+  );
+  assert.deepEqual(event({ type: 'reasoning', text: 'internal thought' }), {});
+});
 test('adapter passes prompt only through stdin, uses isolation and validates structured output', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'question-lab-cli-'));
   t.after(() => rm(root, { recursive: true, force: true }));

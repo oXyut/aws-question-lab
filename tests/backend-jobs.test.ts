@@ -81,6 +81,56 @@ test('restart converts interrupted jobs into retryable failures', async (t) => {
   assert.equal(manager.get('running-job').error?.code, 'INTERRUPTED');
   assert.equal(manager.activeJobId, null);
 });
+test('a cancel after the document commit preserves the successful result and prevents duplicate retry', async (t) => {
+  const store = await setup(t);
+  let committed!: () => void;
+  const commitReady = new Promise<void>((resolve) => {
+    committed = resolve;
+  });
+  const manager = new JobManager(store, async (_payload, signal) => {
+    await store.saveDocument(demoDocument);
+    committed();
+    await new Promise<void>((resolve) =>
+      signal.addEventListener('abort', () => resolve(), { once: true }),
+    );
+    return { documentId: demoDocument.id, revisionId: demoDocument.revisions[0].id };
+  });
+  await manager.init();
+  const job = await manager.start({ kind: 'generate', question: demoDocument.question });
+  await commitReady;
+  manager.cancel(job.id);
+  const done = await terminal(manager, job.id);
+  assert.equal(done.status, 'completed');
+  assert.equal(done.result?.documentId, demoDocument.id);
+  assert.throws(
+    () => manager.retry(job.id),
+    (e: unknown) => e instanceof AppError && e.code === 'NOT_RETRYABLE',
+  );
+  assert.equal((await store.documents()).length, 1);
+});
+test('actual progress is bounded, persisted and restored without duplicate adjacent events', async (t) => {
+  const store = await setup(t);
+  let executionId: string | undefined;
+  const manager = new JobManager(store, async (_payload, _signal, progress, context) => {
+    executionId = context?.jobId;
+    for (let n = 0; n < 45; n++) {
+      progress('research', `検索結果 ${n}`);
+      progress('research', `検索結果 ${n}`);
+    }
+    progress('validating', '関連付けを確認');
+    return { documentId: 'generated', revisionId: 'r1' };
+  });
+  await manager.init();
+  const started = await manager.start(payload);
+  const result = await terminal(manager, started.id);
+  assert.equal(executionId, started.id);
+  assert.equal(result.activity?.length, 40);
+  assert.equal(result.activity?.at(-1)?.stage, 'completed');
+  assert.equal(result.activity?.filter((event) => event.message === '検索結果 44').length, 1);
+  const restored = new JobManager(store, async () => ({}));
+  await restored.init();
+  assert.deepEqual(restored.get(started.id).activity, result.activity);
+});
 test('storage validates opaque IDs, MIME signatures and restores documents', async (t) => {
   const store = await setup(t);
   await assert.rejects(store.image('../../config'));
@@ -108,8 +158,10 @@ test('deleting a document removes its jobs and unreferenced uploads', async (t) 
   await manager.init();
   const job = await manager.start({ kind: 'generate', question: document.question });
   await terminal(manager, job.id);
+  await store.writeJson('diagnostics', job.id, { raw: 'private generated explanation' });
   await manager.deleteDocument(document.id);
   assert.deepEqual(await store.documents(), []);
   assert.deepEqual(await store.listIds('jobs'), []);
+  assert.deepEqual(await store.listIds('diagnostics'), []);
   await assert.rejects(store.image(imageId));
 });
