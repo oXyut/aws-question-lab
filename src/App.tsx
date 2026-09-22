@@ -5,8 +5,10 @@ import {
   Check,
   ChevronDown,
   Clock3,
+  CircleAlert,
+  Monitor,
+  ListFilter,
   Code2,
-  Download,
   FileImage,
   FileText,
   FlaskConical,
@@ -14,13 +16,12 @@ import {
   ImagePlus,
   Layers3,
   Loader2,
-  Menu,
   MessageSquare,
   Plus,
   RefreshCw,
   Search,
-  Send,
   Settings2,
+  Settings,
   Trash2,
   X,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ import type {
 import { demoDocument } from '../shared/demo';
 import { ExplanationViewer } from './components/ExplanationViewer';
 import { GenerationProgress } from './components/GenerationProgress';
+import './shell.css';
 
 type ApiError = Error & { code?: string };
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -70,7 +72,13 @@ function savedInput(): {
       jobId: localStorage.getItem(JOB_KEY),
     };
   } catch {
-    return { text: '', knownAnswer: '', originalExplanation: '', draft: null, jobId: null };
+    return {
+      text: '',
+      knownAnswer: '',
+      originalExplanation: '',
+      draft: null,
+      jobId: null,
+    };
   }
 }
 const isActive = (job: GenerationJob | null) =>
@@ -78,7 +86,10 @@ const isActive = (job: GenerationJob | null) =>
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : '処理を完了できませんでした。';
 const dateLabel = (date: string) =>
-  new Date(date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
+  new Date(date).toLocaleDateString('ja-JP', {
+    month: 'short',
+    day: 'numeric',
+  });
 
 function DraftEditor({
   draft,
@@ -324,6 +335,9 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const deleteDialogRef = useRef<HTMLElement>(null);
   const [historyQuery, setHistoryQuery] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
@@ -331,6 +345,63 @@ export default function App() {
   const completed = useRef(new Set<string>());
   const busy = isActive(job) || submitting;
   const ready = !!health?.codexAvailable && !!health?.authenticated;
+  const drawerOpen = sidebarOpen || connectionOpen;
+  useEffect(() => {
+    if (!drawerOpen && !deleteId) return;
+    const panel = deleteId ? deleteDialogRef.current : drawerRef.current;
+    if (!panel) return;
+    const previousFocus = window.document.activeElement;
+    const previousOverflow = window.document.body.style.overflow;
+    window.document.body.style.overflow = 'hidden';
+    const focusable = () =>
+      [
+        ...panel.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
+        ),
+      ].filter((element) => element.getClientRects().length > 0);
+    const initialFocus = window.setTimeout(() => (focusable()[0] ?? panel).focus(), 0);
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (deleteId) setDeleteId(null);
+        else {
+          setSidebarOpen(false);
+          setConnectionOpen(false);
+        }
+      }
+      if (event.key === 'Tab') {
+        const elements = focusable();
+        const first = elements[0],
+          last = elements.at(-1);
+        if (!first || !last) {
+          event.preventDefault();
+          panel.focus();
+          return;
+        }
+        if (
+          event.shiftKey &&
+          (window.document.activeElement === first ||
+            !panel.contains(window.document.activeElement))
+        ) {
+          event.preventDefault();
+          last.focus();
+        } else if (
+          !event.shiftKey &&
+          (window.document.activeElement === last || !panel.contains(window.document.activeElement))
+        ) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.document.addEventListener('keydown', handleKey);
+    return () => {
+      window.clearTimeout(initialFocus);
+      window.document.removeEventListener('keydown', handleKey);
+      window.document.body.style.overflow = previousOverflow;
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, [drawerOpen, sidebarOpen, connectionOpen, deleteId]);
   const revision =
     document?.revisions.find((r) => r.id === revisionId) ?? document?.revisions.at(-1);
   const refreshHistory = useCallback(async () => {
@@ -474,7 +545,10 @@ export default function App() {
     setError('');
     setSubmitting(true);
     try {
-      const result = await api<{ job: GenerationJob }>(url, { method: 'POST', ...init });
+      const result = await api<{ job: GenerationJob }>(url, {
+        method: 'POST',
+        ...init,
+      });
       completed.current.delete(result.job.id);
       setJob(result.job);
     } catch (err) {
@@ -517,6 +591,7 @@ export default function App() {
     setDocument(null);
     setDemo(false);
     setSidebarOpen(false);
+    setConnectionOpen(false);
     setError('');
     setText('');
     setFiles([]);
@@ -589,19 +664,104 @@ export default function App() {
   const filteredHistory = history.filter((item) =>
     item.title.toLowerCase().includes(historyQuery.toLowerCase()),
   );
-  return (
-    <div className="app-shell">
-      <header className="app-header">
+  const showSample = () => {
+    setDocument(demoDocument);
+    setRevisionId(demoDocument.revisions[0].id);
+    setDemo(true);
+    setSidebarOpen(false);
+    setConnectionOpen(false);
+    setError('');
+  };
+  const openHistory = () => {
+    setConnectionOpen(false);
+    setSidebarOpen((value) => !value);
+  };
+  const openConnection = () => {
+    setSidebarOpen(false);
+    setConnectionOpen((value) => !value);
+  };
+  const closeDrawers = () => {
+    setSidebarOpen(false);
+    setConnectionOpen(false);
+  };
+  const followupPanel = (
+    <section className="followup-section inspector-followup" aria-labelledby="followup-title">
+      <div className="section-label">
+        <Settings2 size={18} />
+        <h3 id="followup-title">他の疑問を入力してみる</h3>
+      </div>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sendFollowup();
+        }}
+      >
+        <textarea
+          aria-label="追加質問"
+          rows={2}
+          value={followup}
+          onChange={(event) => setFollowup(event.target.value)}
+          placeholder={
+            demo
+              ? '自分の問題を生成すると、追加質問できます。'
+              : 'この構成のコストは？代替サービスは？'
+          }
+          disabled={demo || busy}
+          maxLength={10000}
+        />
         <button
-          className="icon-button mobile-menu"
-          aria-label="履歴メニュー"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="primary-button"
+          type="submit"
+          aria-label="追加質問する"
+          title="追加質問する"
+          disabled={!followup.trim() || demo || busy || !ready}
         >
-          <Menu size={20} />
+          <ArrowRight size={20} />
         </button>
-        <button className="brand" disabled={busy} onClick={newQuestion}>
+      </form>
+      <details className="followup-examples">
+        <summary>質問の例</summary>
+        <div className="followup-suggestions">
+          {[
+            'なぜBの選択肢は不適切なの？',
+            '運用負荷よりコストを優先すると？',
+            '処理の流れをもっと詳しく教えて',
+          ].map((item) => (
+            <button key={item} onClick={() => setFollowup(item)} disabled={demo || busy}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </details>
+      <p className="muted small">
+        選択中の版をもとに新しい解説を作ります。元の解説は保存されます。
+      </p>
+    </section>
+  );
+  const generationProgress = job ? (
+    <GenerationProgress
+      job={job}
+      retrying={submitting}
+      onCancel={() => void cancel()}
+      onRetry={() => void runJob(`/api/jobs/${job.id}/retry`)}
+      onDismiss={() => {
+        setJob(null);
+        try {
+          localStorage.removeItem(JOB_KEY);
+        } catch {
+          /* Storage is optional. */
+        }
+      }}
+    />
+  ) : null;
+  return (
+    <div
+      className={`app-shell workbench-shell ${document && revision ? 'has-explanation' : 'has-input'}`}
+    >
+      <header className="app-header">
+        <button className="brand" onClick={closeDrawers} aria-label="AWS Question Lab 学習画面">
           <span className="brand-mark">
-            <Layers3 size={23} />
+            <Layers3 size={39} strokeWidth={2.3} />
           </span>
           <span>
             AWS <strong>Question Lab</strong>
@@ -609,116 +769,235 @@ export default function App() {
           </span>
         </button>
         <div className="header-right">
-          <span className="local-badge">
-            <span />
-            ローカルワークスペース
-          </span>
-          <span className="version-label">v0.1</span>
-        </div>
-      </header>
-      {sidebarOpen && (
-        <button
-          className="sidebar-backdrop"
-          aria-label="メニューを閉じる"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <button className="new-question-button" disabled={busy} onClick={newQuestion}>
-          <Plus size={17} />
-          問題を追加
-        </button>
-        <div className="sidebar-section-title">
-          <History size={15} />
-          <span>学習履歴</span>
-          <span className="history-count">{history.length}</span>
-        </div>
-        {history.length > 3 && (
-          <div className="history-search">
-            <Search size={14} />
-            <input
-              aria-label="履歴を検索"
-              placeholder="タイトルで検索"
-              value={historyQuery}
-              onChange={(e) => setHistoryQuery(e.target.value)}
-            />
-          </div>
-        )}
-        <nav className="history-list" aria-label="学習履歴">
-          {filteredHistory.map((item) => (
-            <div
-              className={`history-item ${document?.id === item.id && !demo ? 'active' : ''}`}
-              key={item.id}
-            >
-              <button
-                className="history-open"
-                disabled={loadingDocument}
-                onClick={() => void loadDocument(item.id)}
-              >
-                <FileText size={16} />
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>
-                    {dateLabel(item.updatedAt)}
-                    <span>·</span>
-                    {item.revisionCount}つの版
-                  </small>
-                </span>
-              </button>
-              <button
-                className="history-delete icon-button"
-                aria-label={`${item.title} の履歴を削除`}
-                disabled={busy}
-                onClick={() => setDeleteId(item.id)}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-          {!filteredHistory.length && (
-            <div className="history-empty">
-              <BookOpen size={26} />
-              <p>
-                {historyQuery ? '一致する履歴がありません。' : '解説を作ると、ここに保存されます。'}
-              </p>
-            </div>
-          )}
-        </nav>
-        <button
-          className={`demo-button ${demo ? 'active' : ''}`}
-          disabled={busy}
-          onClick={() => {
-            setDocument(demoDocument);
-            setRevisionId(demoDocument.revisions[0].id);
-            setDemo(true);
-            setSidebarOpen(false);
-            setError('');
-          }}
-        >
-          <FlaskConical size={17} />
-          <span>
-            サンプルを見てみる<small>連動する図解を体験</small>
-          </span>
-          <ArrowRight size={15} />
-        </button>
-        <div className="sidebar-footer">
-          <span className={`status-dot ${ready ? 'ready' : ''}`} />
-          <div>
-            <strong>
-              {health ? (ready ? 'Codex CLI 接続済み' : 'Codex CLI の確認が必要') : '接続を確認中…'}
-            </strong>
-            <span>{health?.model || '設定済みのモデルを使用'}</span>
-          </div>
           <button
-            className="icon-button"
-            aria-label="Codexの接続状態を再確認"
-            onClick={() => void refreshHealth()}
+            className="topbar-action"
+            aria-label="問題を追加"
+            disabled={busy}
+            onClick={newQuestion}
           >
-            <RefreshCw size={14} />
+            <Plus size={19} />
+            <span>新しい問題</span>
+          </button>
+          <button
+            className="topbar-action"
+            aria-label="HTML出力"
+            disabled={!document || !revision || demo || exporting}
+            onClick={() => void download()}
+            title={demo ? '生成・保存した解説から書き出せます' : '現在の版をオフラインHTMLに保存'}
+          >
+            {exporting ? <Loader2 className="spin" size={18} /> : <FileText size={18} />}
+            <span>HTML保存</span>
+          </button>
+          <span className="topbar-divider" aria-hidden="true" />
+          <button
+            className="workspace-switcher"
+            aria-label="ローカルワークスペースの接続情報"
+            aria-expanded={connectionOpen}
+            aria-controls="connection-drawer"
+            aria-haspopup="dialog"
+            onClick={openConnection}
+          >
+            <Monitor size={15} />
+            <span>ローカルワークスペース</span>
+            <small>v0.1</small>
+            <ChevronDown size={15} />
           </button>
         </div>
-      </aside>
-      <main className="main-content">
+      </header>
+      <nav className="navigation-rail" aria-label="メインナビゲーション">
+        <button
+          className={`rail-button ${!drawerOpen ? 'active' : ''}`}
+          aria-current={!drawerOpen ? 'page' : undefined}
+          onClick={closeDrawers}
+        >
+          <BookOpen size={26} strokeWidth={1.7} />
+          <span>学習</span>
+        </button>
+        <button
+          className={`rail-button ${sidebarOpen ? 'active' : ''}`}
+          aria-expanded={sidebarOpen}
+          aria-controls="history-drawer"
+          aria-haspopup="dialog"
+          onClick={openHistory}
+        >
+          <FileText size={25} strokeWidth={1.7} />
+          <span>履歴</span>
+        </button>
+        <button
+          className={`rail-button ${connectionOpen ? 'active' : ''}`}
+          aria-expanded={connectionOpen}
+          aria-controls="connection-drawer"
+          aria-haspopup="dialog"
+          onClick={openConnection}
+        >
+          <Settings size={25} strokeWidth={1.7} />
+          <span>接続</span>
+        </button>
+      </nav>
+      {drawerOpen && (
+        <button
+          className="shell-drawer-backdrop"
+          aria-label="メニューを閉じる"
+          onClick={closeDrawers}
+          tabIndex={-1}
+        />
+      )}
+      {sidebarOpen && (
+        <aside
+          ref={drawerRef}
+          id="history-drawer"
+          className="sidebar workbench-drawer open"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-drawer-title"
+          tabIndex={-1}
+        >
+          <div className="drawer-heading">
+            <h2 id="history-drawer-title">
+              <History size={19} />
+              学習履歴 <span>{history.length}</span>
+            </h2>
+            <button
+              className="icon-button"
+              aria-label="履歴を閉じる"
+              onClick={() => setSidebarOpen(false)}
+            >
+              <X size={19} />
+            </button>
+          </div>
+          <button className="new-question-button" disabled={busy} onClick={newQuestion}>
+            <Plus size={17} />
+            問題を追加
+          </button>
+          {history.length > 3 && (
+            <div className="history-search">
+              <Search size={16} />
+              <input
+                aria-label="履歴を検索"
+                placeholder="タイトルで検索"
+                value={historyQuery}
+                onChange={(event) => setHistoryQuery(event.target.value)}
+              />
+            </div>
+          )}
+          <nav className="history-list" aria-label="保存した学習履歴">
+            {filteredHistory.map((item) => (
+              <div
+                className={`history-item ${document?.id === item.id && !demo ? 'active' : ''}`}
+                key={item.id}
+              >
+                <button
+                  className="history-open"
+                  disabled={loadingDocument}
+                  onClick={() => void loadDocument(item.id)}
+                >
+                  <FileText size={18} />
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {dateLabel(item.updatedAt)}
+                      <span>·</span>
+                      {item.revisionCount}つの版
+                    </small>
+                  </span>
+                </button>
+                <button
+                  className="history-delete icon-button"
+                  aria-label={`${item.title} の履歴を削除`}
+                  disabled={busy}
+                  onClick={() => setDeleteId(item.id)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+            {!filteredHistory.length && (
+              <div className="history-empty">
+                <BookOpen size={30} />
+                <p>
+                  {historyQuery
+                    ? '一致する履歴がありません。'
+                    : '解説を作ると、ここに保存されます。'}
+                </p>
+              </div>
+            )}
+          </nav>
+          <button
+            className={`demo-button ${demo ? 'active' : ''}`}
+            disabled={busy}
+            onClick={showSample}
+          >
+            <FlaskConical size={19} />
+            <span>
+              サンプルを見てみる<small>連動する図解を体験</small>
+            </span>
+            <ArrowRight size={16} />
+          </button>
+        </aside>
+      )}
+      {connectionOpen && (
+        <aside
+          ref={drawerRef}
+          id="connection-drawer"
+          className="workbench-drawer connection-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connection-drawer-title"
+          tabIndex={-1}
+        >
+          <div className="drawer-heading">
+            <h2 id="connection-drawer-title">
+              <Settings2 size={19} />
+              接続とワークスペース
+            </h2>
+            <button
+              className="icon-button"
+              aria-label="接続情報を閉じる"
+              onClick={() => setConnectionOpen(false)}
+            >
+              <X size={19} />
+            </button>
+          </div>
+          <div className="connection-status">
+            <span className={`status-dot ${ready ? 'ready' : ''}`} />
+            <div>
+              <strong>
+                {health
+                  ? ready
+                    ? 'Codex CLI 接続済み'
+                    : 'Codex CLI の確認が必要'
+                  : '接続を確認中…'}
+              </strong>
+              <p>{health?.message ?? '接続状態を取得しています。'}</p>
+            </div>
+          </div>
+          <dl className="workspace-facts">
+            <div>
+              <dt>ワークスペース</dt>
+              <dd>ローカル</dd>
+            </div>
+            <div>
+              <dt>使用するモデル</dt>
+              <dd>{health?.model || '設定済みのモデル'}</dd>
+            </div>
+            <div>
+              <dt>データの保存先</dt>
+              <dd>このPC内</dd>
+            </div>
+          </dl>
+          {!ready && (
+            <p className="connection-help">
+              ターミナルで <code>codex login</code>{' '}
+              を実行し、接続を再確認してください。セットアップの詳細はREADMEに記載しています。
+            </p>
+          )}
+          <button className="secondary-button" onClick={() => void refreshHealth()}>
+            <RefreshCw size={16} />
+            接続を再確認
+          </button>
+        </aside>
+      )}
+      <main className="main-content" inert={drawerOpen || !!deleteId}>
         {error && (
           <div className="notice error" role="alert">
             <CircleError />
@@ -749,130 +1028,66 @@ export default function App() {
             </div>
           </div>
         )}
-        {job && (
-          <GenerationProgress
-            job={job}
-            retrying={submitting}
-            onCancel={() => void cancel()}
-            onRetry={() => void runJob(`/api/jobs/${job.id}/retry`)}
-            onDismiss={() => {
-              setJob(null);
-              try {
-                localStorage.removeItem(JOB_KEY);
-              } catch {
-                /* Storage is optional. */
-              }
-            }}
-          />
-        )}
+        {job &&
+          (!demo || isActive(job)) &&
+          (document && !isActive(job) ? (
+            <details className="previous-generation">
+              <summary>
+                {job.status === 'completed' ? <Check size={15} /> : <CircleAlert size={15} />}
+                <strong>
+                  前回の生成：
+                  {job.status === 'completed'
+                    ? '完了'
+                    : job.status === 'cancelled'
+                      ? '中断'
+                      : '失敗'}
+                </strong>
+                <span>処理の詳細を表示</span>
+                <ChevronDown size={15} />
+              </summary>
+              {generationProgress}
+            </details>
+          ) : (
+            generationProgress
+          ))}
         {document && revision ? (
           <>
-            <div className="document-heading">
-              <div>
-                <div className="breadcrumb">
-                  学習ワークスペース <span>/</span> {demo ? 'サンプル' : '解説'}
+            <h1 className="sr-only">{revision.explanation.title}</h1>
+            {!demo && (
+              <div className="document-utilitybar">
+                <div className="document-version-picker">
+                  <label htmlFor="document-revision">解説の版</label>
+                  <select
+                    id="document-revision"
+                    aria-label="解説の版"
+                    value={revision.id}
+                    onChange={(event) => setRevisionId(event.target.value)}
+                  >
+                    {document.revisions.map((r, i) => (
+                      <option key={r.id} value={r.id}>
+                        第{i + 1}版{r.prompt ? ` · ${r.prompt.slice(0, 24)}` : ' · 最初の解説'}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <h1>{revision.explanation.title}</h1>
-                <p>
-                  <Clock3 size={14} />
+                <span className="document-created">
+                  <Clock3 size={13} />
                   {new Date(revision.createdAt).toLocaleString('ja-JP')}
-                  {demo && <span className="sample-tag">サンプル教材</span>}
-                </p>
-              </div>
-              <div className="document-actions">
-                <select
-                  aria-label="解説の版"
-                  value={revision.id}
-                  onChange={(event) => setRevisionId(event.target.value)}
-                >
-                  {document.revisions.map((r, i) => (
-                    <option key={r.id} value={r.id}>
-                      第{i + 1}版{r.prompt ? ` · ${r.prompt.slice(0, 24)}` : ' · 最初の解説'}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  className="secondary-button"
-                  onClick={() => void download()}
-                  disabled={exporting || demo}
-                  title={
-                    demo
-                      ? '生成・保存した解説から書き出せます'
-                      : '現在の版をオフラインHTMLに書き出す'
-                  }
-                >
-                  {exporting ? <Loader2 className="spin" size={16} /> : <Download size={16} />}
-                  HTML出力
-                </button>
-              </div>
-            </div>
-            {demo && (
-              <div className="sample-notice">
-                <FlaskConical size={16} />
-                <p>
-                  これは操作を体験するためのサンプルです。新しく生成した解説ではなく、出典の確認結果もデモ表示です。
-                </p>
-                <button className="text-button" onClick={newQuestion}>
-                  自分の問題を入力
-                  <ArrowRight size={15} />
-                </button>
+                </span>
               </div>
             )}
             {revision.prompt && (
               <div className="revision-prompt">
-                <MessageSquare size={17} />
+                <MessageSquare size={16} />
                 <span>この版への追加質問：{revision.prompt}</span>
               </div>
             )}
-            <ExplanationViewer key={revision.id} revision={revision} />
-            <section className="followup-section">
-              <div className="section-label">
-                <MessageSquare size={18} />
-                <h3>もう一歩、掘り下げる</h3>
-                <span className="muted small">選択中の版をもとに新しい版を作成します</span>
-              </div>
-              <div className="followup-suggestions">
-                {[
-                  'なぜBの選択肢は不適切なの？',
-                  '運用負荷よりコストを優先すると？',
-                  '処理の流れをもっと詳しく教えて',
-                ].map((item) => (
-                  <button key={item} onClick={() => setFollowup(item)} disabled={demo || busy}>
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  sendFollowup();
-                }}
-              >
-                <textarea
-                  aria-label="追加質問"
-                  value={followup}
-                  onChange={(event) => setFollowup(event.target.value)}
-                  placeholder={
-                    demo
-                      ? '自分の問題を生成すると、追加質問できます。'
-                      : '「即時性が不要なら？」など、条件を変えて聞いてみましょう'
-                  }
-                  disabled={demo || busy}
-                  maxLength={10000}
-                />
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={!followup.trim() || demo || busy || !ready}
-                >
-                  <Send size={16} />
-                  追加質問する
-                </button>
-              </form>
-              <p className="muted small">
-                AWS公式資料を再確認して図解を更新します。元の解説はそのまま保存されます。
-              </p>
-            </section>
+            <ExplanationViewer
+              key={revision.id}
+              revision={revision}
+              sample={demo}
+              followup={followupPanel}
+            />
           </>
         ) : (
           <div className="input-workspace">
@@ -882,6 +1097,11 @@ export default function App() {
               </div>
               <h1>問題を、構造から理解する。</h1>
               <p>要件を読み解き、選択肢を比較し、AWSの仕組みを図でつかむ。</p>
+              <button className="input-sample-button" disabled={busy} onClick={showSample}>
+                <FlaskConical size={17} />
+                サンプルを見てみる
+                <ArrowRight size={15} />
+              </button>
             </div>
             <div className="input-stepper">
               <span className={!draft ? 'active' : 'done'}>
@@ -1076,7 +1296,7 @@ export default function App() {
               </div>
               <div>
                 <span className="feature-icon">
-                  <ListFilterIcon />
+                  <ListFilter size={20} />
                 </span>
                 <strong>要件から選択肢を検討</strong>
                 <p>
@@ -1113,6 +1333,8 @@ export default function App() {
       {deleteId && (
         <div className="modal-backdrop">
           <section
+            ref={deleteDialogRef}
+            tabIndex={-1}
             className="confirm-modal"
             role="dialog"
             aria-modal="true"
@@ -1138,23 +1360,5 @@ export default function App() {
   );
 }
 function CircleError() {
-  return (
-    <span className="circle-error" aria-hidden="true">
-      !
-    </span>
-  );
-}
-function ListFilterIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-    >
-      <path d="M4 6h16M4 12h12M4 18h7" />
-    </svg>
-  );
+  return <CircleAlert size={18} className="circle-error" aria-hidden="true" />;
 }

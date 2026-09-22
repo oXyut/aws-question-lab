@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   BookOpen,
   Check,
@@ -14,6 +14,10 @@ import {
   ShieldCheck,
   X,
   Zap,
+  Lightbulb,
+  FlaskConical,
+  ArrowRight,
+  Link2,
 } from 'lucide-react';
 import {
   applyEvidenceStatus,
@@ -107,17 +111,25 @@ export function ExplanationViewer({
   revision,
   iconBase,
   iconMap,
+  followup,
+  sample = false,
 }: {
   revision: ExplanationRevision;
   iconBase?: string;
   iconMap?: Record<string, string>;
+  followup?: ReactNode;
+  sample?: boolean;
 }) {
   const explanation = useMemo(
     () => applyEvidenceStatus(revision.explanation),
     [revision.explanation],
   );
   const question = revision.question;
-  const [requirements, setRequirements] = useState<string[]>([]);
+  const [requirements, setRequirements] = useState<string[]>(() => {
+    const focus =
+      explanation.requirements.find((r) => r.kind === 'preference') ?? explanation.requirements[0];
+    return focus ? [focus.id] : [];
+  });
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [graphId, setGraphId] = useState(explanation.recommendedArchitectureId);
   const [requirementStep, setRequirementStep] = useState(-1);
@@ -136,10 +148,12 @@ export function ExplanationViewer({
   const highlightedEdgeIds = relevantChecks.flatMap((c) => c.edgeIds);
   const selectRequirements = (ids: string[]) => {
     setRequirements(ids);
+    setRequirementStep(-1);
   };
   const selectOption = (id: string) => {
     const evaluation = explanation.evaluations.find((e) => e.optionId === id);
     setSelectedOption(id);
+    setRequirementStep(-1);
     if (evaluation?.architectureId) setGraphId(evaluation.architectureId);
     setRequirements(
       evaluation?.checks.filter((c) => c.verdict !== 'meets').map((c) => c.requirementId) ?? [],
@@ -159,96 +173,22 @@ export function ExplanationViewer({
     question.knownAnswerIds.length > 0 &&
     [...question.knownAnswerIds].sort().join('|') !==
       [...explanation.answerOptionIds].sort().join('|');
+  const focused = explanation.requirements.filter((r) => requirements.includes(r.id));
+  const focusReason = explanation.evaluations
+    .filter((e) => explanation.answerOptionIds.includes(e.optionId))
+    .flatMap((e) => e.checks)
+    .filter((c) => requirements.includes(c.requirementId))
+    .map((c) => c.reason)
+    .join(' ');
+  const currentIndex =
+    requirementStep >= 0
+      ? requirementStep
+      : explanation.requirements.findIndex((r) => requirements.includes(r.id));
+  const nextStep = currentIndex >= explanation.requirements.length - 1 ? 0 : currentIndex + 1;
+  const hasUnverified =
+    !explanation.sources.length || explanation.sources.some((s) => s.status !== 'verified');
   return (
-    <div className="explanation-viewer">
-      {(!explanation.sources.length ||
-        explanation.sources.some((source) => source.status !== 'verified')) && (
-        <div className="notice warning">
-          <Info size={18} />
-          <div>
-            <strong>判断の根拠に要確認の項目があります</strong>
-            <p>
-              AWS公式本文と照合できていない根拠があります。該当する評価は「情報不足」として表示し、その判断だけでは選択肢を除外しません。
-            </p>
-          </div>
-        </div>
-      )}
-      <div className="answer-banner">
-        <div className="answer-symbol">
-          <Zap size={23} />
-        </div>
-        <div>
-          <span className="eyebrow">
-            {question.knownAnswerIds.length ? '解答の検討' : '推定解答'}
-            {answerLabels ? ` · ${answerLabels}` : ''}
-          </span>
-          <h2>{explanation.shortAnswer}</h2>
-          <p>{explanation.answerRationale}</p>
-        </div>
-      </div>
-      {disagrees && (
-        <div className="notice warning">
-          <Info size={18} />
-          <div>
-            <strong>入力された正解と推定解答が異なります</strong>
-            <p>
-              入力された正解：{knownLabels} ／ 推定解答：{answerLabels || '未確定'}
-              。下の根拠と前提条件を確認してください。
-            </p>
-          </div>
-        </div>
-      )}
-      {!disagrees && knownLabels && (
-        <p className="answer-reference">
-          <CheckCircle2 size={15} />
-          入力された正解（{knownLabels}）と推定解答が一致しています。
-        </p>
-      )}
-      <div className="requirement-toolbar">
-        <div className="toolbar-label">
-          <ListFilter size={17} />
-          <strong>要件で絞り込む</strong>
-          <span>
-            {requirementStep < 0
-              ? '全要件を表示'
-              : `${requirementStep + 1} / ${explanation.requirements.length}`}
-          </span>
-        </div>
-        <div className="step-buttons">
-          <button
-            className="text-button"
-            onClick={() => moveStep(requirementStep < 0 ? 0 : Math.max(0, requirementStep - 1))}
-            disabled={requirementStep === 0}
-          >
-            <ChevronLeft size={16} />
-            前へ
-          </button>
-          <button
-            className="text-button"
-            onClick={() =>
-              moveStep(
-                requirementStep < 0
-                  ? 0
-                  : Math.min(explanation.requirements.length - 1, requirementStep + 1),
-              )
-            }
-            disabled={requirementStep === explanation.requirements.length - 1}
-          >
-            {requirementStep < 0 ? '順に確認' : '次の要件'}
-            <ChevronRight size={16} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="全要件を表示して強調を解除"
-            onClick={() => {
-              moveStep(-1);
-              setSelectedOption(null);
-            }}
-          >
-            <RotateCcw size={15} />
-          </button>
-        </div>
-      </div>
+    <div className="explanation-viewer studio-viewer">
       <div className="mobile-tabs" role="tablist" aria-label="解説パネル">
         {[
           ['question', '問題と要件'],
@@ -260,183 +200,218 @@ export function ExplanationViewer({
           </button>
         ))}
       </div>
-      <div className="analysis-grid">
-        <section
-          className={`analysis-panel question-panel ${tab === 'question' ? 'mobile-active' : ''}`}
-        >
-          <div className="panel-heading">
-            <BookOpen size={17} />
-            <h3>問題と要件</h3>
-            <span className="panel-number">01</span>
-          </div>
-          <div className="panel-body">
-            <p className="panel-instruction">マーカー部分を選ぶと、図と評価が連動します。</p>
+      <div className="studio-workspace">
+        <div className="studio-main">
+          <section
+            className={`studio-question ${tab === 'question' ? 'mobile-active' : ''}`}
+            aria-label="問題と要件"
+          >
+            <div className="studio-question-label">
+              {sample ? <FlaskConical size={19} /> : <BookOpen size={19} />}
+              <strong>{sample ? 'サンプル問題' : '問題と要件'}</strong>
+              <span>
+                {sample
+                  ? '操作体験用の固定教材です。出典の確認結果もデモ表示です。'
+                  : 'マーカーを選ぶと、図と判断が連動します。'}
+              </span>
+            </div>
             <RequirementText
               text={question.text}
               requirements={explanation.requirements}
               selected={requirements}
               onSelect={selectRequirements}
             />
-            <div className="requirement-list">
+            <div className="studio-requirements" aria-label="注目する要件">
               {explanation.requirements.map((r, i) => (
                 <button
                   key={r.id}
                   aria-pressed={requirements.includes(r.id)}
-                  className={`requirement-card ${requirements.includes(r.id) ? 'selected' : ''} ${!revealIds.includes(r.id) ? 'not-revealed' : ''}`}
+                  className={`studio-requirement ${requirements.includes(r.id) ? 'selected' : ''} ${!revealIds.includes(r.id) ? 'not-revealed' : ''}`}
                   onClick={() => selectRequirements(requirements.includes(r.id) ? [] : [r.id])}
                 >
-                  <span className="requirement-index">{String(i + 1).padStart(2, '0')}</span>
-                  <span>
-                    <span className={`kind kind-${r.kind}`}>
-                      {r.kind === 'hard'
-                        ? '必須要件'
-                        : r.kind === 'preference'
-                          ? '比較条件'
-                          : '背景情報'}
-                    </span>
-                    <strong>{r.label}</strong>
-                    <span className="requirement-explanation">{r.explanation}</span>
-                  </span>
+                  <span className="requirement-index">{i + 1}</span>
+                  <span>{r.label}</span>
                 </button>
               ))}
             </div>
             {!!question.options.length && (
-              <div className="original-options">
-                <h4>選択肢の原文</h4>
-                {question.options.map((option) => (
+              <details className="studio-original-options">
+                <summary>選択肢の原文を確認</summary>
+                <div className="original-options">
+                  {question.options.map((option) => (
+                    <button
+                      className={selectedOption === option.id ? 'selected' : ''}
+                      key={option.id}
+                      onClick={() => selectOption(option.id)}
+                    >
+                      <span className="option-letter">{option.label}</span>
+                      <span>{option.text}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )}
+          </section>
+          <section
+            className={`studio-diagram ${tab === 'diagram' ? 'mobile-active' : ''}`}
+            aria-label="構成図"
+          >
+            <div className="studio-diagram-heading">
+              <h3>
+                <GitBranch size={19} />
+                構成図
+              </h3>
+              <select
+                aria-label="表示する構成"
+                id={`graph-${revision.id}`}
+                value={graph.id}
+                onChange={(event) => {
+                  const next = explanation.architectures.find((g) => g.id === event.target.value)!;
+                  setGraphId(next.id);
+                  setSelectedOption(next.optionIds.length === 1 ? next.optionIds[0] : null);
+                }}
+              >
+                {explanation.architectures.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.id === explanation.recommendedArchitectureId ? '推奨構成 · ' : ''}
+                    {g.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="studio-diagram-description">{graph.description}</p>
+            <ArchitectureDiagram
+              graph={graph}
+              requirementIds={requirements}
+              highlightedNodeIds={highlightedNodeIds}
+              highlightedEdgeIds={highlightedEdgeIds}
+              onRequirements={selectRequirements}
+              iconBase={iconBase}
+              iconMap={iconMap}
+            />
+          </section>
+        </div>
+        <aside
+          className={`studio-inspector ${tab === 'choices' ? 'mobile-active' : ''}`}
+          aria-label="要件の判断と選択肢"
+        >
+          <h2 className="inspector-heading">
+            <Lightbulb size={24} />
+            {focused.length ? 'この要件の判断' : '解答のポイント'}
+          </h2>
+          <div className="studio-insight">
+            <strong>
+              {focused.length
+                ? `着目する要件：「${focused.map((r) => r.label).join('・')}」`
+                : explanation.shortAnswer}
+            </strong>
+            <p>
+              {focused.length
+                ? focusReason || focused.map((r) => r.explanation).join(' ')
+                : explanation.answerRationale}
+            </p>
+            <details className="answer-details">
+              <summary>
+                {question.knownAnswerIds.length ? '解答の検討' : '推定解答'}
+                {answerLabels ? ` · ${answerLabels}` : ''}
+              </summary>
+              <h3>{explanation.shortAnswer}</h3>
+              <p>{explanation.answerRationale}</p>
+              {focused.map((r) => (
+                <p key={r.id}>{r.explanation}</p>
+              ))}
+            </details>
+          </div>
+          {hasUnverified && (
+            <div className="notice warning studio-warning">
+              <Info size={16} />
+              <p>
+                <strong>根拠に要確認の項目があります</strong>
+                公式本文と未照合の判断は「情報不足」として扱い、その判断だけでは除外しません。
+              </p>
+            </div>
+          )}
+          {disagrees && (
+            <div className="notice warning studio-warning">
+              <Info size={16} />
+              <p>
+                <strong>入力された正解と推定解答が異なります</strong>入力：
+                {knownLabels} ／ 推定：{answerLabels || '未確定'}
+              </p>
+            </div>
+          )}
+          {!disagrees && knownLabels && (
+            <p className="studio-answer-match">
+              <CheckCircle2 size={14} />
+              入力された正解（{knownLabels}）と一致
+            </p>
+          )}
+          <div className="inspector-section-heading">
+            <ListFilter size={19} />
+            <h3>選択肢の評価</h3>
+          </div>
+          {question.selectionMode === 'multiple' && (
+            <div className="multi-answer">
+              <GitBranch size={16} />
+              <div>
+                <strong>組み合わせとして評価：{answerLabels || '検討中'}</strong>
+                <p>単体の不足だけで除外せず、構成全体の役割分担を確認してください。</p>
+              </div>
+            </div>
+          )}
+          {!explanation.evaluations.length && (
+            <div className="empty-evaluations">
+              <CircleHelp size={24} />
+              <p>選択肢のない質問です。問題の要件と推奨構成を確認してください。</p>
+            </div>
+          )}
+          <div className="studio-evaluations">
+            {explanation.evaluations.map((evaluation) => {
+              const option = question.options.find((o) => o.id === evaluation.optionId)!;
+              const checks = evaluation.checks.filter((c) => revealIds.includes(c.requirementId));
+              const focusChecks = checks.filter((c) => requirements.includes(c.requirementId));
+              const verdict =
+                requirementStep >= 0
+                  ? progressiveVerdict(
+                      checks.filter(
+                        (c) =>
+                          explanation.requirements.find((r) => r.id === c.requirementId)?.kind !==
+                          'context',
+                      ),
+                    )
+                  : focusChecks.length
+                    ? progressiveVerdict(focusChecks)
+                    : evaluation.overall;
+              const architecture = explanation.architectures.find(
+                (a) => a.id === evaluation.architectureId,
+              );
+              const title =
+                architecture?.title.replace(/^[A-ZＡ-Ｚa-z0-9]+\s*[·.：:、-]\s*/, '') ??
+                option.text;
+              const isSelected =
+                selectedOption === option.id ||
+                (!selectedOption && explanation.answerOptionIds.includes(option.id));
+              return (
+                <article
+                  key={option.id}
+                  className={`evaluation-card studio-evaluation ${isSelected ? 'selected' : ''} ${verdict === 'violates' ? 'eliminated' : ''}`}
+                >
                   <button
-                    className={selectedOption === option.id ? 'selected' : ''}
-                    key={option.id}
+                    className="evaluation-heading"
+                    aria-pressed={isSelected}
                     onClick={() => selectOption(option.id)}
                   >
                     <span className="option-letter">{option.label}</span>
-                    <span>{option.text}</span>
+                    <strong className="evaluation-title">{title}</strong>
+                    <VerdictBadge verdict={verdict} />
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-        <section
-          className={`analysis-panel diagram-panel ${tab === 'diagram' ? 'mobile-active' : ''}`}
-        >
-          <div className="panel-heading">
-            <GitBranch size={17} />
-            <h3>アーキテクチャ</h3>
-            <span className="panel-number">02</span>
-          </div>
-          <div className="graph-selector">
-            <label htmlFor={`graph-${revision.id}`}>表示する構成</label>
-            <select
-              id={`graph-${revision.id}`}
-              value={graph.id}
-              onChange={(event) => {
-                const next = explanation.architectures.find((g) => g.id === event.target.value)!;
-                setGraphId(next.id);
-                setSelectedOption(next.optionIds.length === 1 ? next.optionIds[0] : null);
-              }}
-            >
-              <option value={explanation.recommendedArchitectureId}>
-                推奨構成 ·{' '}
-                {
-                  explanation.architectures.find(
-                    (g) => g.id === explanation.recommendedArchitectureId,
-                  )?.title
-                }
-              </option>
-              {explanation.architectures
-                .filter((g) => g.id !== explanation.recommendedArchitectureId)
-                .map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.optionIds
-                      .map((id) => question.options.find((o) => o.id === id)?.label)
-                      .join(' + ')}{' '}
-                    · {g.title}
-                  </option>
-                ))}
-            </select>
-            <p>{graph.description}</p>
-          </div>
-          <ArchitectureDiagram
-            graph={graph}
-            requirementIds={requirements}
-            highlightedNodeIds={highlightedNodeIds}
-            highlightedEdgeIds={highlightedEdgeIds}
-            onRequirements={selectRequirements}
-            iconBase={iconBase}
-            iconMap={iconMap}
-          />
-          <div className="diagram-legend">
-            <span>
-              <i className="legend-line" />
-              データ
-            </span>
-            <span>
-              <i className="legend-line dashed" />
-              制御・メタデータ
-            </span>
-            <span>
-              <i className="legend-dot" />
-              選択中の要件に関連
-            </span>
-          </div>
-        </section>
-        <section
-          className={`analysis-panel choices-panel ${tab === 'choices' ? 'mobile-active' : ''}`}
-        >
-          <div className="panel-heading">
-            <ListFilter size={17} />
-            <h3>選択肢の評価</h3>
-            <span className="panel-number">03</span>
-          </div>
-          <div className="panel-body">
-            <p className="panel-instruction">評価を選ぶと、根拠となる原文へ逆引きできます。</p>
-            {question.selectionMode === 'multiple' && (
-              <div className="multi-answer">
-                <GitBranch size={16} />
-                <div>
-                  <strong>組み合わせとして評価：{answerLabels || '検討中'}</strong>
-                  <p>
-                    複数のサービスで役割を分担する場合もあります。単体の不足だけで除外せず、上の解答理由と構成全体を確認してください。
+                  <p className="studio-evaluation-reason">
+                    {focusChecks.length
+                      ? focusChecks.map((c) => c.reason).join(' ')
+                      : evaluation.summary}
                   </p>
-                </div>
-              </div>
-            )}
-            {!explanation.evaluations.length && (
-              <div className="empty-evaluations">
-                <CircleHelp size={26} />
-                <p>選択肢のない質問です。問題の要件と推奨構成を確認してください。</p>
-              </div>
-            )}
-            <div className="evaluations">
-              {explanation.evaluations.map((evaluation) => {
-                const option = question.options.find((o) => o.id === evaluation.optionId)!;
-                const checks = evaluation.checks.filter((c) => revealIds.includes(c.requirementId));
-                const verdict =
-                  requirementStep < 0
-                    ? evaluation.overall
-                    : progressiveVerdict(
-                        checks.filter(
-                          (check) =>
-                            explanation.requirements.find(
-                              (requirement) => requirement.id === check.requirementId,
-                            )?.kind !== 'context',
-                        ),
-                      );
-                return (
-                  <article
-                    key={evaluation.optionId}
-                    className={`evaluation-card ${selectedOption === evaluation.optionId ? 'selected' : ''} ${verdict === 'violates' ? 'eliminated' : ''}`}
-                  >
-                    <button
-                      className="evaluation-heading"
-                      aria-pressed={selectedOption === evaluation.optionId}
-                      onClick={() => selectOption(evaluation.optionId)}
-                    >
-                      <span className="option-letter">{option.label}</span>
-                      <span className="evaluation-summary">{evaluation.summary}</span>
-                      <VerdictBadge verdict={verdict} />
-                    </button>
+                  <details className="evaluation-details">
+                    <summary>要件ごとの根拠</summary>
                     <div className="evaluation-checks">
                       {checks.map((check) => {
                         const requirement = explanation.requirements.find(
@@ -447,7 +422,7 @@ export function ExplanationViewer({
                             key={check.requirementId}
                             className={`check-row ${requirements.includes(check.requirementId) ? 'selected' : ''}`}
                             onClick={() => {
-                              setSelectedOption(evaluation.optionId);
+                              setSelectedOption(option.id);
                               if (evaluation.architectureId) setGraphId(evaluation.architectureId);
                               selectRequirements([check.requirementId]);
                             }}
@@ -474,23 +449,89 @@ export function ExplanationViewer({
                           </button>
                         );
                       })}
-                      {!checks.length && (
-                        <p className="muted small">この要件に対する評価はまだありません。</p>
-                      )}
                     </div>
                     {evaluation.conditionsToBeCorrect && (
-                      <details className="alternative-condition">
-                        <summary>この選択肢が正解になる条件</summary>
+                      <div className="alternative-condition">
+                        <strong>この選択肢が正解になる条件</strong>
                         <p>{evaluation.conditionsToBeCorrect}</p>
-                      </details>
+                      </div>
                     )}
-                  </article>
-                );
-              })}
-            </div>
+                  </details>
+                </article>
+              );
+            })}
           </div>
-        </section>
+          <div className="studio-source-links">
+            <div className="inspector-section-heading">
+              <Link2 size={19} />
+              <h3>関連資料（AWS公式）</h3>
+            </div>
+            {explanation.sources.map((source, i) => (
+              <a
+                key={source.id}
+                href={officialSourceUrl(source.url)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink size={14} />
+                <span>{source.title}</span>
+                <span className="sr-only">出典 {i + 1}</span>
+              </a>
+            ))}
+            <a className="source-details-link" href="#evidence-details">
+              引用箇所・確認日を見る
+              <ChevronRight size={13} />
+            </a>
+          </div>
+          {followup}
+        </aside>
       </div>
+      <nav className="studio-stepbar" aria-label="要件を順に確認">
+        <span className="stepbar-title">
+          <ListFilter size={18} />
+          要件を順に見る
+        </span>
+        <div className="stepbar-requirements">
+          {explanation.requirements.map((r, i) => (
+            <button
+              key={r.id}
+              className={requirements.includes(r.id) ? 'selected' : ''}
+              aria-label={`要件 ${i + 1}: ${r.label}`}
+              aria-pressed={requirements.includes(r.id)}
+              onClick={() => moveStep(i)}
+            >
+              <span>{i + 1}</span>
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className="icon-button"
+          aria-label="全要件を表示して強調を解除"
+          onClick={() => {
+            moveStep(-1);
+            setSelectedOption(null);
+          }}
+        >
+          <RotateCcw size={16} />
+        </button>
+        <button
+          className="icon-button stepbar-previous"
+          aria-label="前の要件"
+          disabled={requirementStep <= 0}
+          onClick={() => moveStep(Math.max(0, requirementStep - 1))}
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <button
+          className="primary-button stepbar-next"
+          disabled={!explanation.requirements.length}
+          onClick={() => moveStep(nextStep)}
+        >
+          {currentIndex === explanation.requirements.length - 1 ? '最初の要件へ' : '次の要件へ'}
+          <ArrowRight size={18} />
+        </button>
+      </nav>
       <div className="learning-grid">
         <section className="learning-card">
           <div className="section-label">
@@ -541,7 +582,7 @@ export function ExplanationViewer({
           </dl>
         </section>
       </div>
-      <section className="sources-section">
+      <section className="sources-section" id="evidence-details">
         <div className="section-label">
           <ShieldCheck size={18} />
           <h3>AWS公式資料</h3>

@@ -45,9 +45,10 @@ test('requirements, option comparisons, architecture switching and flow steps st
   page.on('pageerror', (error) => errors.push(error.message));
   await openSample(page);
   await expect(
-    page.getByText('これは操作を体験するためのサンプルです。', { exact: false }),
+    page.getByText('操作体験用の固定教材です。出典の確認結果もデモ表示です。', { exact: true }),
   ).toBeVisible();
-  await page.locator('.requirement-card').filter({ hasText: '運用負荷を最小限に' }).click();
+  await page.locator('.studio-requirement').first().click();
+  await page.locator('.studio-requirement').filter({ hasText: '運用負荷を最小限に' }).click();
   await expect(page.locator('.quote-highlight.selected')).toContainText('運用負荷を最小限');
   await expect(
     page.locator('.service-node.is-active').filter({ hasText: 'Amazon Athena' }),
@@ -56,6 +57,7 @@ test('requirements, option comparisons, architecture switching and flow steps st
   await expect(
     page.locator('.evaluation-card').nth(1).locator('.evaluation-heading .verdict'),
   ).toHaveText('比較上不利');
+  await page.locator('.studio-original-options > summary').click();
   await page.locator('.original-options button').nth(1).click();
   await expect(page.getByLabel('表示する構成')).toHaveValue('graph-b');
   await expect(
@@ -63,13 +65,38 @@ test('requirements, option comparisons, architecture switching and flow steps st
   ).toBeVisible();
   await page.getByRole('button', { name: '次の処理', exact: true }).click();
   await expect(page.locator('.flow-step')).toContainText('クラスターを用意する');
-  await page.getByRole('button', { name: /順に確認/ }).click();
-  await expect(page.locator('.toolbar-label')).toContainText('1 / 3');
-  await page.getByRole('button', { name: /次の要件/ }).click();
-  await expect(page.locator('.toolbar-label')).toContainText('2 / 3');
+  const requirementSteps = page.getByRole('navigation', { name: '要件を順に確認' });
+  await requirementSteps.getByRole('button', { name: /^要件 1:/ }).click();
+  await expect(requirementSteps.getByRole('button', { name: /^要件 1:/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await requirementSteps.getByRole('button', { name: '次の要件へ', exact: true }).click();
+  await expect(requirementSteps.getByRole('button', { name: /^要件 2:/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(page.locator('.quote-highlight.selected')).toContainText(
     '元データを別のデータストア',
   );
+  await page.locator('.studio-requirement').filter({ hasText: '運用負荷を最小限に' }).click();
+  await expect(page.locator('.studio-insight > strong')).toContainText('運用負荷を最小限に');
+  await expect(
+    page.locator('.evaluation-card').nth(1).locator('.evaluation-heading .verdict'),
+  ).toHaveText('比較上不利');
+  await expect(
+    page.locator('.evaluation-card').nth(1).locator('.studio-evaluation-reason'),
+  ).toHaveText(
+    demoDocument.revisions[0].explanation.evaluations[1].checks.find(
+      (check) => check.requirementId === 'operations',
+    )!.reason,
+  );
+  await requirementSteps.getByRole('button', { name: /^要件 1:/ }).click();
+  await page.locator('.original-options button').nth(1).click();
+  await expect(page.locator('.quote-highlight.selected')).toContainText('運用負荷を最小限');
+  await expect(
+    page.locator('.evaluation-card').nth(1).locator('.evaluation-heading .verdict'),
+  ).toHaveText('比較上不利');
   expect(errors).toEqual([]);
 });
 
@@ -81,12 +108,15 @@ test('small screen tabs and keyboard controls work without page overflow', async
     'true',
   );
   await page.getByRole('tab', { name: '問題と要件', exact: true }).click();
-  await expect(page.locator('.question-panel')).toBeVisible();
-  await page.locator('.requirement-card').first().focus();
+  await expect(page.locator('.studio-question')).toBeVisible();
+  await page.locator('.studio-requirement').first().focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.requirement-card').first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.studio-requirement').first()).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('tab', { name: '選択肢の評価', exact: true }).click();
-  await expect(page.locator('.choices-panel')).toBeVisible();
+  await expect(page.locator('.studio-inspector')).toBeVisible();
+  await page.getByRole('tab', { name: '構成図', exact: true }).click();
+  await expect(page.locator('.studio-diagram')).toBeVisible();
+  await expect(page.locator('.service-node').first()).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
   ).toBe(true);
@@ -223,12 +253,22 @@ test('generation, follow-up revisions, history and a genuinely offline HTML expo
   await expect(page.getByLabel('問題文', { exact: true })).toHaveValue(demoQuestion.text);
   await page.getByRole('button', { name: /図解を生成する/ }).click();
   await expect(page.locator('.react-flow__node')).toHaveCount(4);
+  await page.locator('.followup-examples > summary').click();
+  await page.getByRole('button', { name: '処理の流れをもっと詳しく教えて', exact: true }).click();
+  await expect(page.getByLabel('追加質問', { exact: true })).toHaveValue(
+    '処理の流れをもっと詳しく教えて',
+  );
   await page.getByLabel('追加質問', { exact: true }).fill('この比較の前提を詳しく説明してください');
   await page.getByRole('button', { name: '追加質問する', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '追加質問後の解説', exact: true })).toBeVisible();
   await expect(page.getByLabel('解説の版')).toHaveValue('second-revision');
+  await expect(page.locator('.revision-prompt')).toContainText(
+    'この比較の前提を詳しく説明してください',
+  );
+  await page.locator('.answer-details > summary').click();
+  await expect(page.locator('.answer-details > h3')).toHaveText('追加の条件も確認した推定解答');
   await page.getByLabel('解説の版').selectOption(original.id);
-  await expect(page.locator('.answer-banner')).toContainText(original.explanation.shortAnswer);
+  await page.locator('.answer-details > summary').click();
+  await expect(page.locator('.answer-details > h3')).toHaveText(original.explanation.shortAnswer);
   const pendingDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'HTML出力', exact: true }).click();
   const download = await pendingDownload;
@@ -244,7 +284,8 @@ test('generation, follow-up revisions, history and a genuinely offline HTML expo
   await context.setOffline(true);
   await offline.goto(pathToFileURL(exportPath).href);
   await expect(offline.locator('.react-flow__node')).toHaveCount(4);
-  await offline.locator('.requirement-card').last().click();
+  await offline.locator('.studio-requirement').first().click();
+  await offline.locator('.studio-requirement').last().click();
   await expect(offline.locator('.quote-highlight.selected')).toContainText('運用負荷');
   await offline.getByLabel('表示する構成').selectOption('graph-c');
   await expect(
@@ -263,6 +304,14 @@ test('generation, follow-up revisions, history and a genuinely offline HTML expo
   expect(errors).toEqual([]);
   await offline.close();
   await context.setOffline(false);
+  await page.getByRole('button', { name: '問題を追加', exact: true }).click();
+  await page.getByRole('button', { name: '履歴', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: /学習履歴/ })
+    .locator('.history-open')
+    .click();
+  await expect(page.getByRole('dialog', { name: /学習履歴/ })).toHaveCount(0);
+  await expect(page.getByLabel('解説の版')).toHaveValue('second-revision');
 });
 
 test('PNG upload reaches the extraction request and can be corrected before generation', async ({
@@ -282,16 +331,14 @@ test('PNG upload reaches the extraction request and can be corrected before gene
     });
   });
   await page.goto('/');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'question.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYs8AAAAASUVORK5CYII=',
-        'base64',
-      ),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'question.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYs8AAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
   await expect(page.getByText('question.png', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: /問題を読み取る/ }).click();
   await expect(page.getByText('画像の選択肢Bの文字を確認してください。')).toBeVisible();

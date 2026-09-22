@@ -32,7 +32,11 @@ async function showFixture(page: Page, document: ExplanationDocument) {
     route.fulfill({ json: { document } }),
   );
   await page.goto('/');
-  await page.locator('.history-open').click();
+  await page.getByRole('button', { name: '履歴', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: /学習履歴/ })
+    .locator('.history-open')
+    .click();
   await expect(page.locator('.react-flow__node')).toHaveCount(
     document.revisions[0].explanation.architectures[0].nodes.length,
   );
@@ -76,8 +80,9 @@ test('multiple selections explain the combination without treating each service 
   page,
 }) => {
   await showFixture(page, multipleSelection());
-  await expect(page.locator('.answer-banner')).toContainText('A + B');
-  await expect(page.locator('.answer-banner')).toContainText(
+  await page.locator('.answer-details > summary').click();
+  await expect(page.locator('.answer-details > h3')).toContainText('A + B');
+  await expect(page.locator('.answer-details > p').first()).toContainText(
     'Aはテーブル定義を、BはSQLの実行を担当',
   );
   await expect(page.locator('.multi-answer')).toContainText('組み合わせとして評価：A + B');
@@ -89,6 +94,7 @@ test('multiple selections explain the combination without treating each service 
     page.locator('.evaluation-card').nth(1).locator('.evaluation-heading .verdict'),
   ).toHaveText('満たす');
   await expect(page.locator('.evaluation-card.eliminated')).toHaveCount(0);
+  await page.locator('.studio-original-options > summary').click();
   await page.locator('.original-options button').nth(1).click();
   await expect(page.getByLabel('表示する構成')).toHaveValue('graph-a');
   await expect(
@@ -127,15 +133,47 @@ test('questions without options retain requirements, diagrams and sources with a
   await expect(page.locator('.empty-evaluations')).toContainText('選択肢のない質問です');
   await expect(page.locator('.original-options')).toHaveCount(0);
   await expect(page.locator('.evaluation-card')).toHaveCount(0);
-  await expect(page.locator('.requirement-card')).toHaveCount(3);
+  await expect(page.locator('.studio-requirement')).toHaveCount(3);
   await expect(page.locator('.source-card')).toHaveCount(3);
-  await page.locator('.requirement-card').last().click();
+  await page.locator('.studio-requirement').first().click();
+  await page.locator('.studio-requirement').last().click();
   await expect(page.locator('.quote-highlight.selected')).toContainText('運用負荷を最小限');
   await expect(
     page.locator('.service-node.is-active').filter({ hasText: 'Amazon Athena' }),
   ).toBeVisible();
   await page.getByRole('button', { name: '次の処理', exact: true }).click();
   await expect(page.locator('.flow-step')).toContainText('テーブルを定義する');
+});
+
+test('unverified evidence stays unknown while switching focused requirements and evaluation steps', async ({
+  page,
+}) => {
+  const document = structuredClone(demoDocument);
+  document.id = 'fixture-unverified-evidence';
+  document.revisions[0].explanation.sources.forEach((source) => {
+    source.status = 'unverified';
+    source.checkedAt = null;
+    source.verificationNote = '照合結果を確認できない架空のテスト資料です。';
+  });
+  await showFixture(page, document);
+  const verdicts = page.locator('.evaluation-heading .verdict');
+  await expect(page.getByText('根拠に要確認の項目があります', { exact: true })).toBeVisible();
+  await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
+  await expect(page.locator('.evaluation-card.eliminated')).toHaveCount(0);
+  await page
+    .getByRole('navigation', { name: '要件を順に確認' })
+    .getByRole('button', { name: /^要件 1:/ })
+    .click();
+  await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
+  await page.locator('.studio-requirement').filter({ hasText: '運用負荷を最小限に' }).click();
+  await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
+  await page.locator('.evaluation-details > summary').nth(1).click();
+  await expect(page.locator('.evaluation-card').nth(1).locator('.check-sources')).toHaveText([
+    /要確認/,
+    /要確認/,
+    /要確認/,
+  ]);
+  await expect(page.locator('.source-verification .unverified')).toHaveCount(3);
 });
 
 test('long Japanese content keeps node boxes apart and exposes complete descriptions to keyboard users', async ({
@@ -194,7 +232,7 @@ test('long Japanese content keeps node boxes apart and exposes complete descript
     await page.evaluate(() => window.document.documentElement.scrollWidth <= innerWidth + 1),
   ).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator('.diagram-panel')).toBeVisible();
+  await expect(page.locator('.studio-diagram')).toBeVisible();
   expect(
     await page.evaluate(() => window.document.documentElement.scrollWidth <= innerWidth + 1),
   ).toBe(true);

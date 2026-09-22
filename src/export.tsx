@@ -2,6 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { ExplanationViewer } from './components/ExplanationViewer.js';
 import type { ExplanationRevision } from '../shared/schema.js';
 import './styles.css';
+import './studio.css';
+import './diagram.css';
 
 declare global {
   interface Window {

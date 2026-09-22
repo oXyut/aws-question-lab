@@ -101,7 +101,7 @@ export async function renderExport(
 <meta name="referrer" content="no-referrer">
 <title>${title} — AWS Question Lab</title>
 <style>${css.replace(/<\/style/gi, '<\\/style')}
-html,body{margin:0;min-height:100%;} .export-main{padding:24px;max-width:1800px;margin:0 auto;} .export-header{margin:0 0 24px;} .export-header>div{display:flex;align-items:center;gap:16px;flex-wrap:wrap;} .export-header strong{font-size:22px;} .export-header span{font-size:12px;border:1px solid currentColor;border-radius:999px;padding:4px 10px;} .export-header p{font-size:13px;line-height:1.7;opacity:.8;max-width:90ch;} @media(max-width:600px){.export-main{padding:12px;}}
+
 </style>
 </head>
 <body>
