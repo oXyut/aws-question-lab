@@ -5,10 +5,10 @@
   "type": "module",
   "engines": { "node": ">=22.0.0" },
   "scripts": {
-    "dev": "tsx server/index.ts --dev",
-    "build": "tsc --noEmit && vite build && tsx scripts/build-export.ts",
-    "start": "tsx server/index.ts",
-    "test": "tsx --test tests/*.test.ts",
+    "dev": "node --import tsx server/index.ts --dev",
+    "build": "tsc --noEmit && vite build && node --import tsx scripts/build-export.ts",
+    "start": "node --import tsx server/index.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },

@@ -149,6 +149,7 @@ export function validateReferences(question: QuestionDraft, explanation: Explana
   requireIds(question.knownAnswerIds, options, '入力された正解');
   requireIds(explanation.answerOptionIds, options, '推定解答');
   if (question.selectionMode === 'single' && explanation.answerOptionIds.length > 1) throw new Error('単一選択の解答が複数あります');
+  if (question.selectionCount && explanation.answerOptionIds.length && explanation.answerOptionIds.length !== question.selectionCount) throw new Error('指定された解答の選択数と一致しません');
   if (question.selectionMode === 'none' && question.options.length) throw new Error('自由記述の問題に選択肢があります');
   const reqs = unique(explanation.requirements.map(r => r.id), '要件');
   explanation.requirements.forEach(r => { if (!quoteSpan(question.text, r)) throw new Error(`要件「${r.label}」の引用が問題文にありません`); });
@@ -173,6 +174,8 @@ export function validateReferences(question: QuestionDraft, explanation: Explana
   for (const evaluation of explanation.evaluations) {
     if (evaluation.architectureId) requireIds([evaluation.architectureId], graphs, '評価の構成図');
     unique(evaluation.checks.map(c => c.requirementId), '要件の評価');
+    const checkedRequirements = new Set(evaluation.checks.map(c => c.requirementId));
+    if (explanation.requirements.some(r => r.kind !== 'context' && !checkedRequirements.has(r.id))) throw new Error('すべての必須・比較要件について選択肢を評価してください');
     for (const check of evaluation.checks) {
       requireIds([check.requirementId], reqs, '評価の要件');
       requireIds(check.sourceIds, sources, '評価の出典');
