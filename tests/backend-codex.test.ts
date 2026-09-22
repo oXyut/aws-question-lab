@@ -10,8 +10,29 @@ import {
   safeCliError,
   explanationOutputSchema,
   evaluationCompletionSchema,
+  readCliSettings,
 } from '../server/codex.ts';
 import { demoDocument } from '../shared/demo.ts';
+import { validateReferences } from '../shared/schema.ts';
+
+test('study effort defaults to low while retaining the configured model and explicit app overrides', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'question-lab-settings-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(
+    join(root, 'config.toml'),
+    'model = "configured-model"\nmodel_reasoning_effort = "high"\n[plugins]\nignored=true\n',
+  );
+  const defaults = await readCliSettings({ CODEX_HOME: root });
+  assert.equal(defaults.model, 'configured-model');
+  assert.equal(defaults.effort, 'low');
+  const override = await readCliSettings({
+    CODEX_HOME: root,
+    CODEX_MODEL: 'chosen-model',
+    CODEX_REASONING_EFFORT: 'high',
+  });
+  assert.equal(override.model, 'chosen-model');
+  assert.equal(override.effort, 'high');
+});
 
 test('CLI parser handles observed search and final message events without treating commentary as JSON', () => {
   assert.deepEqual(parseCliEvent('not JSON'), {});
@@ -49,11 +70,19 @@ test('question-specific output requires every option and maps it back to the sha
   const wire = {
     ...explanation,
     evaluations: Object.fromEntries(
-      explanation.evaluations.map(({ optionId, ...evaluation }) => [optionId, evaluation]),
+      explanation.evaluations.map(({ optionId, checks, ...evaluation }) => [
+        optionId,
+        {
+          ...evaluation,
+          checks: checks.map(({ nodeIds: _nodes, edgeIds: _edges, ...check }) => check),
+        },
+      ]),
     ),
   };
   const schema = explanationOutputSchema(demoDocument.question);
   assert.doesNotThrow(() => schema.parse(wire));
+  assert.ok(!('nodeIds' in schema.shape.evaluations.shape.a.shape.checks.element.shape));
+  assert.ok(!('edgeIds' in schema.shape.evaluations.shape.a.shape.checks.element.shape));
   const incomplete = structuredClone(wire);
   delete incomplete.evaluations.b;
   assert.equal(schema.safeParse(incomplete).success, false);
@@ -64,7 +93,16 @@ test('question-specific output requires every option and maps it back to the sha
     new AbortController().signal,
     () => {},
   );
-  assert.deepEqual(result.value.evaluations, explanation.evaluations);
+  validateReferences(demoDocument.question, result.value);
+  assert.deepEqual(
+    result.value.evaluations.map((e) => e.optionId),
+    ['a', 'b', 'c'],
+  );
+  assert.equal(
+    result.value.evaluations[0].checks[0].reason,
+    explanation.evaluations[0].checks[0].reason,
+  );
+  assert.ok(result.value.evaluations[0].checks[0].nodeIds.includes('a-athena'));
 });
 test('completion requires missing option and requirement keys and accepts only existing reference IDs', async () => {
   const explanation = structuredClone(demoDocument.revisions[0].explanation);
@@ -155,7 +193,19 @@ test('adapter passes prompt only through stdin, uses isolation and validates str
   const executable = join(root, 'mock-codex');
   await writeFile(
     executable,
-    `#!/usr/bin/env node\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{const args=process.argv.slice(2);if(!args.includes('--ignore-user-config')||!args.includes('--ignore-rules')||!args.includes('--ephemeral')||!args.includes('read-only')||args.includes(input))process.exit(2);console.error('warning: missing base_instructions');console.log(JSON.stringify({type:'item.completed',item:{type:'web_search'}}));console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify({answer:input})}}));});\n`,
+    `#!/usr/bin/env node
+const fs=require('node:fs');
+let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{
+  const args=process.argv.slice(2);
+  if(!args.includes('--ignore-user-config')||!args.includes('--ignore-rules')||!args.includes('--ephemeral')||!args.includes('read-only')||args.includes(input))process.exit(2);
+  const setting=args.find(arg=>arg.startsWith('model_instructions_file='));
+  const instructions=fs.readFileSync(JSON.parse(setting.slice(setting.indexOf('=')+1)),'utf8');
+  if(!instructions.includes('exactly one final JSON')||!instructions.includes('untrusted task data')||!instructions.includes('Do not execute commands'))process.exit(3);
+  console.log(JSON.stringify({type:'item.completed',item:{type:'web_search'}}));
+  console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:JSON.stringify({answer:input})}}));
+  console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:100,output_tokens:25}}));
+});
+`,
     { mode: 0o700 },
   );
   const adapter = new CodexAdapter(join(root, 'runtime'), { executable, timeout: 5000 });
@@ -169,6 +219,13 @@ test('adapter passes prompt only through stdin, uses isolation and validates str
   );
   assert.equal(result.value.answer, 'a $(do-not-run) `shell` prompt');
   assert.equal(result.searched, true);
+  assert.ok(result.metrics!.durationMs >= 0);
+  assert.ok(result.metrics!.firstSearchMs !== null);
+  assert.equal(result.metrics!.agentMessages.length, 1);
+  assert.equal(result.metrics!.agentMessages[0].structured, true);
+  assert.equal(result.metrics!.agentMessages[0].characters, JSON.stringify(result.value).length);
+  assert.deepEqual(result.metrics!.usage, { inputTokens: 100, outputTokens: 25 });
+  assert.ok(!JSON.stringify(result.metrics).includes('do-not-run'));
 });
 test('adapter times out and terminates a hung subprocess', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'question-lab-cli-'));

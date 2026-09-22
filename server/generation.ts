@@ -13,7 +13,7 @@ import {
   type ExplanationInput,
 } from '../shared/schema.ts';
 import { AppError } from './errors.ts';
-import { CodexAdapter } from './codex.ts';
+import { CodexAdapter, type CliResult } from './codex.ts';
 import { verifySources } from './sources.ts';
 import { Storage, makeId } from './storage.ts';
 import type { Executor } from './jobs.ts';
@@ -32,6 +32,7 @@ type GenerationDiagnostic = {
   repairs: DisplayReferenceRepair[];
   question?: QuestionDraft;
   searched: boolean;
+  cliMetrics?: CliResult<ExplanationInput>['metrics'];
   rawCreatedAt: string;
   resumedFrom?: { diagnosticId: string; createdAt: string; rawCreatedAt: string };
   completion?: {
@@ -124,7 +125,7 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
       const resumed = payload.resumeDiagnosticId
         ? await restoreRecentExplanation(storage, payload.resumeDiagnosticId, question)
         : null;
-      let result: { value: ExplanationInput; searched: boolean };
+      let result: CliResult<ExplanationInput>;
       if (resumed) {
         progress('validating', '直近の生成結果から再開し、未完了の検証を続けています。');
         result = resumed;
@@ -140,6 +141,7 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
         );
       }
       beginDiagnostic(resumed?.rawOutput ?? result.value, result.searched, question);
+      if (result.metrics) diagnostic!.cliMetrics = structuredClone(result.metrics);
       if (resumed) {
         diagnostic!.rawCreatedAt = resumed.rawCreatedAt;
         diagnostic!.resumedFrom = {
@@ -357,6 +359,7 @@ async function restoreRecentExplanation(storage: Storage, id: string, question: 
       rawOutput: saved.rawOutput,
       createdAt,
       rawCreatedAt,
+      metrics: saved.cliMetrics,
     };
   } catch {
     // Missing/corrupt/expired or semantically invalid output needs fresh research.

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Storage } from '../server/storage.ts';
 import { createExecutor } from '../server/generation.ts';
 import { CodexAdapter } from '../server/codex.ts';
+import { JobManager, isTerminal } from '../server/jobs.ts';
 import { demoDocument } from '../shared/demo.ts';
 import type { QuestionDraft } from '../shared/schema.ts';
 
@@ -519,4 +520,45 @@ test('a repairable display-link error can still resume without a model call', as
   }>('diagnostics', 'resumed-display');
   assert.deepEqual(diagnostic.rawOutput, rawOutput);
   assert.equal(diagnostic.resumedFrom.diagnosticId, 'repairable-display');
+});
+
+test('CLI performance metrics are saved privately without appearing in public jobs or documents', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'question-lab-cli-metrics-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new Storage(root);
+  await storage.init();
+  const metrics = {
+    durationMs: 18200,
+    firstSearchMs: 4300,
+    agentMessages: [{ atMs: 18100, characters: 4200, structured: true }],
+    usage: { inputTokens: 3600, outputTokens: 2100 },
+  };
+  const fake = {
+    explain: async () => ({
+      value: structuredClone(demoDocument.revisions[0].explanation),
+      searched: false,
+      metrics,
+    }),
+  } as unknown as CodexAdapter;
+  const manager = new JobManager(storage, createExecutor(storage, fake));
+  await manager.init();
+  const job = await manager.start({ kind: 'generate', question: demoDocument.question });
+  if (!isTerminal(manager.get(job.id).status))
+    await new Promise<void>((resolve) => {
+      const unsubscribe = manager.subscribe(job.id, (snapshot) => {
+        if (isTerminal(snapshot.status)) {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  const publicJob = manager.get(job.id);
+  assert.equal(publicJob.status, 'completed');
+  const diagnostic = await storage.readJson<{ cliMetrics: typeof metrics }>('diagnostics', job.id);
+  assert.deepEqual(diagnostic.cliMetrics, metrics);
+  assert.ok(!JSON.stringify(publicJob).includes('cliMetrics'));
+  assert.ok(!JSON.stringify(publicJob).includes('agentMessages'));
+  const document = await storage.document(publicJob.result!.documentId!);
+  assert.ok(!JSON.stringify(document).includes('cliMetrics'));
+  assert.ok(!JSON.stringify(document).includes('agentMessages'));
 });
