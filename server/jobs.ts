@@ -11,8 +11,14 @@ export type JobPayload =
       originalExplanation: string;
       imageIds: string[];
     }
-  | { kind: 'generate'; question: QuestionDraft }
-  | { kind: 'followup'; documentId: string; revisionId: string; prompt: string };
+  | { kind: 'generate'; question: QuestionDraft; resumeDiagnosticId?: string }
+  | {
+      kind: 'followup';
+      documentId: string;
+      revisionId: string;
+      prompt: string;
+      resumeDiagnosticId?: string;
+    };
 export type JobRecord = { job: GenerationJob; payload: JobPayload };
 export type Executor = (
   payload: JobPayload,
@@ -204,7 +210,12 @@ export class JobManager {
     const job = this.get(id);
     if (job.status !== 'failed' && job.status !== 'cancelled')
       throw new AppError('NOT_RETRYABLE', '失敗または中断したジョブだけ再試行できます。', 409);
-    return this.start(this.records.get(id)!.payload);
+    const payload = this.records.get(id)!.payload;
+    return this.start(
+      payload.kind !== 'extract' && job.error?.code === 'INVALID_REFERENCES'
+        ? { ...payload, resumeDiagnosticId: id }
+        : payload,
+    );
   }
   subscribe(id: string, listener: (job: GenerationJob) => void): () => void {
     this.get(id);

@@ -8,7 +8,9 @@ const inputText = '生成を待っている間も保持したいAWSの問題文�
 
 async function openProgress(page: Page, initialJob: ProgressJob) {
   const state = { current: initialJob };
-  await page.clock.install({ time: new Date(baseTime) });
+  // Let the page initialize naturally, then freeze at the fixture's exact reference time.
+  // CI latency must not advance the clock between an action and its elapsed-time assertion.
+  await page.clock.install({ time: new Date(baseTime - 60_000) });
   await page.addInitScript((text) => {
     localStorage.setItem(
       'aws-question-lab-input-v1',
@@ -38,6 +40,7 @@ async function openProgress(page: Page, initialJob: ProgressJob) {
   );
   await page.goto('/');
   await expect(page.getByRole('region', { name: '生成の進行状況' })).toBeVisible();
+  await page.clock.pauseAt(new Date(baseTime));
   return state;
 }
 
@@ -146,6 +149,8 @@ test('repair status remains visible and cancellation freezes elapsed time while 
   await expect(page.getByRole('timer', { name: '経過時間' })).toContainText('0分00秒');
   await expect(page.getByLabel('問題文と選択肢', { exact: true })).toHaveValue(inputText);
   await expect(progress.locator('.progress-history-list li')).toHaveCount(1);
+  await page.clock.fastForward(1000);
+  await expect(page.getByRole('timer', { name: '経過時間' })).toContainText('0分01秒');
 });
 
 test('legacy jobs without activity keep their terminal duration and remain usable on mobile', async ({

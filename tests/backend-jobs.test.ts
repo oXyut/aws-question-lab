@@ -81,6 +81,25 @@ test('restart converts interrupted jobs into retryable failures', async (t) => {
   assert.equal(manager.get('running-job').error?.code, 'INTERRUPTED');
   assert.equal(manager.activeJobId, null);
 });
+test('retry passes the failed diagnostic only for reference failures', async (t) => {
+  const store = await setup(t);
+  const inputs: JobPayload[] = [];
+  const manager = new JobManager(store, async (input) => {
+    inputs.push(input);
+    if (inputs.length === 1) throw new AppError('INVALID_REFERENCES', 'incomplete evaluation');
+    return { documentId: 'recovered', revisionId: 'r1' };
+  });
+  await manager.init();
+  const first = await manager.start({ kind: 'generate', question: demoDocument.question });
+  assert.equal((await terminal(manager, first.id)).error?.code, 'INVALID_REFERENCES');
+  const retry = await manager.retry(first.id);
+  assert.equal((await terminal(manager, retry.id)).status, 'completed');
+  assert.deepEqual(inputs[1], {
+    kind: 'generate',
+    question: demoDocument.question,
+    resumeDiagnosticId: first.id,
+  });
+});
 test('a cancel after the document commit preserves the successful result and prevents duplicate retry', async (t) => {
   const store = await setup(t);
   let committed!: () => void;

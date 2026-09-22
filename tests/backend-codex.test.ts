@@ -4,7 +4,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { CodexAdapter, parseCliEvent, safeCliError } from '../server/codex.ts';
+import {
+  CodexAdapter,
+  parseCliEvent,
+  safeCliError,
+  explanationOutputSchema,
+  evaluationCompletionSchema,
+} from '../server/codex.ts';
+import { demoDocument } from '../shared/demo.ts';
 
 test('CLI parser handles observed search and final message events without treating commentary as JSON', () => {
   assert.deepEqual(parseCliEvent('not JSON'), {});
@@ -36,6 +43,66 @@ test('public CLI errors classify failures without exposing stderr', () => {
   assert.ok(!safeCliError('Bearer private-secret').message.includes('private-secret'));
   assert.equal(safeCliError('usage_limit_reached').code, 'USAGE_LIMIT');
   assert.equal(safeCliError('stream disconnected: network').code, 'NETWORK');
+});
+test('question-specific output requires every option and maps it back to the shared array format', async () => {
+  const explanation = structuredClone(demoDocument.revisions[0].explanation);
+  const wire = {
+    ...explanation,
+    evaluations: Object.fromEntries(
+      explanation.evaluations.map(({ optionId, ...evaluation }) => [optionId, evaluation]),
+    ),
+  };
+  const schema = explanationOutputSchema(demoDocument.question);
+  assert.doesNotThrow(() => schema.parse(wire));
+  const incomplete = structuredClone(wire);
+  delete incomplete.evaluations.b;
+  assert.equal(schema.safeParse(incomplete).success, false);
+  const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+  adapter.run = async (schema) => ({ value: schema.parse(wire), searched: true });
+  const result = await adapter.explain(
+    demoDocument.question,
+    new AbortController().signal,
+    () => {},
+  );
+  assert.deepEqual(result.value.evaluations, explanation.evaluations);
+});
+test('completion requires missing option and requirement keys and accepts only existing reference IDs', async () => {
+  const explanation = structuredClone(demoDocument.revisions[0].explanation);
+  const selected = explanation.evaluations.filter((e) => ['b', 'c'].includes(e.optionId));
+  const wire = {
+    evaluations: Object.fromEntries(
+      selected.map(({ optionId, checks, ...evaluation }) => [
+        optionId,
+        {
+          ...evaluation,
+          checks: Object.fromEntries(
+            checks.map(({ requirementId, ...check }) => [requirementId, check]),
+          ),
+        },
+      ]),
+    ),
+  };
+  const schema = evaluationCompletionSchema(explanation, ['b', 'c']);
+  assert.doesNotThrow(() => schema.parse(wire));
+  const missing = structuredClone(wire);
+  delete missing.evaluations.c;
+  assert.equal(schema.safeParse(missing).success, false);
+  const badSource = structuredClone(wire);
+  Object.values(badSource.evaluations.b.checks)[0].sourceIds = ['invented-source'];
+  assert.equal(schema.safeParse(badSource).success, false);
+  const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+  adapter.run = async (schema, _prompt, _images, research) => {
+    assert.equal(research, false);
+    return { value: schema.parse(wire), searched: false };
+  };
+  const result = await adapter.completeEvaluations(
+    demoDocument.question,
+    explanation,
+    ['b', 'c'],
+    new AbortController().signal,
+    () => {},
+  );
+  assert.deepEqual(result, selected);
 });
 test('progress exposes actual search actions and assistant updates but never reasoning or JSON payloads', () => {
   const event = (item: unknown, type = 'item.completed') =>

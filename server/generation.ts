@@ -1,12 +1,16 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
   QuestionDraftSchema,
   ExplanationSchema,
+  ExplanationInputSchema,
+  EvaluationSchema,
   applyEvidenceStatus,
   validateReferences,
   type ExplanationRevision,
   type ExplanationDocument,
   type QuestionDraft,
   type Source,
+  type ExplanationInput,
 } from '../shared/schema.ts';
 import { AppError } from './errors.ts';
 import { CodexAdapter } from './codex.ts';
@@ -28,6 +32,15 @@ type GenerationDiagnostic = {
   repairs: DisplayReferenceRepair[];
   question?: QuestionDraft;
   searched: boolean;
+  rawCreatedAt: string;
+  resumedFrom?: { diagnosticId: string; createdAt: string; rawCreatedAt: string };
+  completion?: {
+    requestedOptionIds: string[];
+    status: 'requested' | 'completed' | 'failed';
+    rawOutput?: unknown;
+    error?: { code: string; message: string };
+  };
+  completedOutput?: ExplanationInput;
   sourceVerification?: Source[];
   error?: { code: string; message: string };
   result?: { documentId: string; revisionId: string };
@@ -50,6 +63,7 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
         rawOutput,
         repairs: [],
         searched,
+        rawCreatedAt: now,
         question,
       };
     };
@@ -107,19 +121,100 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
         question = parsed.data;
       } else question = payload.question;
       await Promise.all(question.imageIds.map((id) => storage.image(id)));
-      progress('research', 'AWS公式資料を検索して、要件と選択肢を照合しています。');
-      const result = await cli.explain(
-        question,
-        signal,
-        progress,
-        payload.kind === 'followup'
-          ? { prompt: payload.prompt, previousAnswer: parent!.explanation.answerRationale }
-          : undefined,
-      );
-      beginDiagnostic(result.value, result.searched, question);
+      const resumed = payload.resumeDiagnosticId
+        ? await restoreRecentExplanation(storage, payload.resumeDiagnosticId, question)
+        : null;
+      let result: { value: ExplanationInput; searched: boolean };
+      if (resumed) {
+        progress('validating', '直近の生成結果から再開し、未完了の検証を続けています。');
+        result = resumed;
+      } else {
+        progress('research', 'AWS公式資料を検索して、要件と選択肢を照合しています。');
+        result = await cli.explain(
+          question,
+          signal,
+          progress,
+          payload.kind === 'followup'
+            ? { prompt: payload.prompt, previousAnswer: parent!.explanation.answerRationale }
+            : undefined,
+        );
+      }
+      beginDiagnostic(resumed?.rawOutput ?? result.value, result.searched, question);
+      if (resumed) {
+        diagnostic!.rawCreatedAt = resumed.rawCreatedAt;
+        diagnostic!.resumedFrom = {
+          diagnosticId: payload.resumeDiagnosticId!,
+          createdAt: resumed.createdAt,
+          rawCreatedAt: resumed.rawCreatedAt,
+        };
+      }
       await saveDiagnostic();
       progress('validating', '生成された解説の要件・出典・図の関連付けを確認しています。');
-      const repaired = repairDisplayReferences(result.value);
+      let completeExplanation = result.value;
+      const optionIds = new Set(question.options.map((option) => option.id));
+      const evaluatedIds = result.value.evaluations.map((evaluation) => evaluation.optionId);
+      const missingOptionIds = question.options
+        .filter((option) => !evaluatedIds.includes(option.id))
+        .map((option) => option.id);
+      if (
+        missingOptionIds.length &&
+        new Set(evaluatedIds).size === evaluatedIds.length &&
+        evaluatedIds.every((id) => optionIds.has(id))
+      ) {
+        diagnostic!.completion = { requestedOptionIds: missingOptionIds, status: 'requested' };
+        await saveDiagnostic();
+        progress(
+          'repairing',
+          `不足している${missingOptionIds.length}件の選択肢評価を、取得済みの資料から補完しています。`,
+        );
+        try {
+          const added = await cli.completeEvaluations(
+            question,
+            structuredClone(result.value),
+            [...missingOptionIds],
+            signal,
+            (_stage, message) => progress('repairing', message),
+          );
+          diagnostic!.completion.rawOutput = added;
+          await saveDiagnostic();
+          const parsed = EvaluationSchema.array().safeParse(added);
+          if (
+            !parsed.success ||
+            parsed.data.length !== missingOptionIds.length ||
+            new Set(parsed.data.map((evaluation) => evaluation.optionId)).size !==
+              missingOptionIds.length ||
+            parsed.data.some((evaluation) => !missingOptionIds.includes(evaluation.optionId))
+          )
+            throw new AppError(
+              'INVALID_REFERENCES',
+              `不足分の選択肢評価を補完できませんでした。診断ID: ${diagnosticId}。`,
+            );
+          completeExplanation = {
+            ...result.value,
+            evaluations: [
+              ...result.value.evaluations,
+              ...missingOptionIds.map((id) =>
+                parsed.data.find((evaluation) => evaluation.optionId === id)!,
+              ),
+            ],
+            caveats: [
+              ...result.value.caveats,
+              `初回出力で不足していた${missingOptionIds.length}件の選択肢評価を、取得済みの公式資料と構成図を使って補完しました。`,
+            ],
+          };
+          diagnostic!.completion.status = 'completed';
+          diagnostic!.completedOutput = completeExplanation;
+          await saveDiagnostic();
+        } catch (error) {
+          diagnostic!.completion.status = 'failed';
+          diagnostic!.completion.error = {
+            code: error instanceof AppError ? error.code : 'COMPLETION_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown completion failure',
+          };
+          throw error;
+        }
+      }
+      const repaired = repairDisplayReferences(completeExplanation);
       diagnostic!.repairedOutput = repaired.explanation;
       diagnostic!.repairs = repaired.repairs;
       diagnostic!.status = 'repaired';
@@ -208,4 +303,63 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
       throw error;
     }
   };
+}
+
+/** Resume only fresh output whose remaining failures can actually be repaired locally. */
+async function restoreRecentExplanation(storage: Storage, id: string, question: QuestionDraft) {
+  try {
+    const saved = await storage.readJson<Partial<GenerationDiagnostic>>('diagnostics', id);
+    const savedQuestion = QuestionDraftSchema.safeParse(saved.question);
+    const raw = ExplanationInputSchema.safeParse(saved.rawOutput);
+    const createdAt = typeof saved.createdAt === 'string' ? saved.createdAt : '';
+    const rawCreatedAt = typeof saved.rawCreatedAt === 'string' ? saved.rawCreatedAt : createdAt;
+    const now = Date.now();
+    const ages = [now - Date.parse(createdAt), now - Date.parse(rawCreatedAt)];
+    if (
+      !savedQuestion.success ||
+      !isDeepStrictEqual(savedQuestion.data, question) ||
+      !raw.success ||
+      typeof saved.searched !== 'boolean' ||
+      ages.some((age) => !Number.isFinite(age) || age < 0 || age > 15 * 60 * 1000)
+    )
+      return null;
+    const validationCopy = repairDisplayReferences(raw.data).explanation;
+    const evaluatedIds = new Set(
+      validationCopy.evaluations.map((evaluation) => evaluation.optionId),
+    );
+    // These neutral entries exist only in this isolated validation copy. They let
+    // validateReferences inspect existing evaluations and the whole graph even
+    // when some evaluations are missing; they never reach the model or storage.
+    for (const option of question.options) {
+      if (evaluatedIds.has(option.id)) continue;
+      validationCopy.evaluations.push({
+        optionId: option.id,
+        overall: 'unknown',
+        summary: '',
+        conditionsToBeCorrect: '',
+        architectureId: null,
+        checks: validationCopy.requirements
+          .filter((requirement) => requirement.kind !== 'context')
+          .map((requirement) => ({
+            requirementId: requirement.id,
+            verdict: 'unknown',
+            reason: '',
+            sourceIds: [],
+            nodeIds: [],
+            edgeIds: [],
+          })),
+      });
+    }
+    validateReferences(question, validationCopy);
+    return {
+      value: raw.data,
+      searched: saved.searched,
+      rawOutput: saved.rawOutput,
+      createdAt,
+      rawCreatedAt,
+    };
+  } catch {
+    // Missing/corrupt/expired or semantically invalid output needs fresh research.
+    return null;
+  }
 }
