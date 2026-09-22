@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BookOpen,
   Check,
@@ -56,6 +56,23 @@ function RequirementText({
   selected: string[];
   onSelect: (ids: string[]) => void;
 }) {
+  const textContainer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = textContainer.current;
+    if (!element) return;
+    const revealQuote = () => {
+      const active = element.querySelector<HTMLElement>('.quote-highlight.selected');
+      if (!active || element.scrollHeight <= element.clientHeight) return;
+      const quote = active.getBoundingClientRect();
+      const viewport = element.getBoundingClientRect();
+      if (quote.top < viewport.top || quote.bottom > viewport.bottom)
+        element.scrollTop += quote.top - viewport.top - 8;
+    };
+    revealQuote();
+    const observer = new ResizeObserver(revealQuote);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selected]);
   const spans = requirements
     .map((r) => ({ requirement: r, span: quoteSpan(text, r) }))
     .filter((item) => item.span !== null);
@@ -63,7 +80,12 @@ function RequirementText({
     ...new Set([0, text.length, ...spans.flatMap((item) => [item.span!.start, item.span!.end])]),
   ].sort((a, b) => a - b);
   return (
-    <div className="question-text">
+    <div
+      ref={textContainer}
+      className="question-text"
+      tabIndex={0}
+      aria-label="問題文（長い場合はスクロールで全文を表示）"
+    >
       {points.slice(0, -1).map((start, i) => {
         const end = points[i + 1];
         const matching = spans

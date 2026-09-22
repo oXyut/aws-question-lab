@@ -855,9 +855,6 @@
   margin-bottom: 12px;
 }
 @media (min-width: 1100px) {
-  .workbench-shell:has(.studio-question-label) .studio-workspace {
-    min-height: 650px;
-  }
   .studio-question {
     max-height: 40%;
   }
@@ -892,4 +889,45 @@
 .studio-insight > p {
   font-size: 15px;
   line-height: 1.8;
+}
+/* Short laptop windows retain the requirement controls; only the original prose scrolls. */
+@media (min-width: 1100px) and (max-height: 850px) {
+  .workbench-shell .studio-workspace {
+    height: calc(100dvh - 148px);
+    min-height: 540px;
+  }
+  .studio-question {
+    max-height: none;
+    padding: 14px 24px 9px;
+  }
+  .studio-question-label {
+    margin-bottom: 8px;
+  }
+  .studio-question .question-text {
+    max-height: 78px;
+    font-size: 18px;
+    line-height: 1.7;
+  }
+  .studio-requirements {
+    margin-top: 10px;
+  }
+  .studio-requirement {
+    padding: 5px 9px;
+    font-size: 13px;
+    gap: 6px;
+  }
+  .studio-requirement .requirement-index {
+    width: 29px;
+    height: 29px;
+    font-size: 15px;
+  }
+  .studio-original-options {
+    margin-top: 4px;
+  }
+  .studio-diagram {
+    padding-top: 12px;
+  }
+  .studio-diagram-description {
+    display: none;
+  }
 }

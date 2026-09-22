@@ -303,3 +303,21 @@
   flex-basis: 480px;
   min-height: 480px;
 }
+
+/* Only node geometry changes here; keeping canvas sizing unchanged avoids
+   repeatedly crossing the measured height threshold. */
+.architecture-diagram.is-dense .service-node {
+  height: 134px;
+}
+
+.architecture-diagram.is-dense .service-node-icon {
+  flex-shrink: 0;
+}
+
+.architecture-diagram.is-dense .service-node-label {
+  -webkit-line-clamp: 1;
+}
+
+.architecture-diagram.is-dense .service-node-description {
+  display: none;
+}

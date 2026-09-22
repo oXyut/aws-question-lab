@@ -133,18 +133,26 @@ function DiagramContent({
   const [step, setStep] = useState(-1);
   const [playing, setPlaying] = useState(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [compact, setCompact] = useState(false);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const compact = canvasSize.width > 0 && canvasSize.width < 520;
+  const dense = canvasSize.width >= 520 && canvasSize.height > 0 && canvasSize.height < 340;
+  const layoutNodeHeight = dense ? 134 : nodeHeight;
   const canvas = useRef<HTMLDivElement>(null);
   const flow = useReactFlow();
   const { zoom } = useViewport();
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
-    const updateDirection = () => {
-      if (element.clientWidth > 0) setCompact(element.clientWidth < 520);
+    const updateSize = () => {
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      if (!width || !height) return;
+      setCanvasSize((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
     };
-    updateDirection();
-    const observer = new ResizeObserver(updateDirection);
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -163,7 +171,7 @@ function DiagramContent({
         layoutOptions: {
           'elk.algorithm': 'layered',
           'elk.direction': compact ? 'DOWN' : 'RIGHT',
-          'elk.spacing.nodeNode': compact ? '24' : '44',
+          'elk.spacing.nodeNode': compact || dense ? '24' : '44',
           'elk.layered.spacing.nodeNodeBetweenLayers': compact ? '40' : '100',
           'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
           'elk.padding': '[top=24,left=24,bottom=24,right=24]',
@@ -171,7 +179,7 @@ function DiagramContent({
         children: graph.nodes.map((n) => ({
           id: n.id,
           width: nodeWidth,
-          height: nodeHeight,
+          height: layoutNodeHeight,
         })),
         edges: graph.edges.map((edge) => {
           const source = graph.nodes.find((node) => node.id === edge.from);
@@ -201,7 +209,9 @@ function DiagramContent({
             Object.fromEntries(
               graph.nodes.map((n, i) => [
                 n.id,
-                compact ? { x: 0, y: i * 218 } : { x: (i % 3) * 290, y: Math.floor(i / 3) * 230 },
+                compact
+                  ? { x: 0, y: i * 218 }
+                  : { x: (i % 3) * 290, y: Math.floor(i / 3) * (layoutNodeHeight + 52) },
               ]),
             ),
           );
@@ -210,7 +220,7 @@ function DiagramContent({
     return () => {
       cancelled = true;
     };
-  }, [graph, compact]);
+  }, [graph, compact, dense, layoutNodeHeight]);
   useEffect(() => {
     if (!Object.keys(positions).length) return;
     let frame = 0;
@@ -360,7 +370,9 @@ function DiagramContent({
   );
   const detail = graph.nodes.find((n) => n.id === selectedNode);
   return (
-    <div className={`architecture-diagram${compact ? ' is-compact' : ''}`}>
+    <div
+      className={`architecture-diagram${compact ? ' is-compact' : ''}${dense ? ' is-dense' : ''}`}
+    >
       <div ref={canvas} className="diagram-canvas" aria-label="AWSアーキテクチャ図">
         {!Object.keys(positions).length ? (
           <div className="diagram-loading">構成図を配置しています…</div>

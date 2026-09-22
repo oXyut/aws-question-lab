@@ -102,6 +102,17 @@ test('requirements, option comparisons, architecture switching and flow steps st
 
 test('small screen tabs and keyboard controls work without page overflow', async ({ page }) => {
   await openSample(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect
+    .poll(async () => {
+      const toolbar = await page.locator('.diagram-toolbar').boundingBox();
+      const stepbar = await page.locator('.studio-stepbar').boundingBox();
+      return !!toolbar && !!stepbar && toolbar.y + toolbar.height <= stepbar.y;
+    })
+    .toBe(true);
+  await page.getByRole('button', { name: '次の処理', exact: true }).click();
+  await expect(page.locator('.flow-step')).toContainText('テーブルを定義する');
+  await page.getByRole('button', { name: '処理の強調をリセット', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('tab', { name: '構成図', exact: true })).toHaveAttribute(
     'aria-selected',

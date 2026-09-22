@@ -20,7 +20,8 @@ final result: passed
 2. First combined comparison (`comparison-initial.jpg`) found P2 undersized icons and excessive comparison-panel height. Icons increased to 82 px; selected judgement reasons show a readable excerpt with complete reasons inside a disclosure. Correct-answer conditions moved into the same detail surface. Header, rail, white canvas, orange requirement states, ink text and fixed step controls follow the selected design.
 3. Refined comparison (`comparison-refined.jpg`, `inspector-comparison.jpg`) found P2 connector captions touching another node's description. The library's BaseEdge renderer now places angled horizontal captions near the source segment. `diagram-final.jpg` verifies the caption is clear of the preceding node.
 4. Mobile inspection found P2 clipped requirement buttons under the navigation rail and a tiny horizontal diagram. Footer offset now follows the rail, and canvas widths below 520 px use a vertical ELK layout with appropriate top/bottom handles. The final mobile capture shows all requirement buttons and readable service icons.
-5. Final full-view and focused combined comparisons found no remaining actionable P0/P1/P2 issues in the app workspace.
+5. At the normal 1280 × 720 laptop viewport, P2 requirement chips and diagram controls could fall behind other content. The question prose now scrolls independently and reveals the selected quotation. Low horizontal canvases use shorter nodes, retaining full descriptions on selection. `.local/design-qa/laptop-final.png` verifies readable icons and visible controls above the step bar.
+6. Final full-view and focused combined comparisons found no remaining actionable P0/P1/P2 issues in the app workspace.
 
 ## Required fidelity surfaces
 
@@ -42,7 +43,7 @@ Verified in the in-app browser:
 - No horizontal page overflow at 390 px. Browser console error log empty in the final inspected app state.
 - Unit suite: 67 tests passed. TypeScript and production/export bundle build passed.
 
-The direct `file://` HTML browser check was blocked by the browser URL policy and was not bypassed. Export structure, embedded assets and network-denying CSP are covered by unit tests; this local visual QA does not claim to have performed a disconnected file-browser run. Existing CI includes separate synthetic export coverage.
+The direct `file://` HTML browser check was blocked by the browser URL policy and was not bypassed. Export structure, embedded assets and network-denying CSP are covered by unit tests; this local visual QA does not claim to have performed a disconnected file-browser run. The first revision’s existing CI completed successfully, including its synthetic disconnected HTML browser test (15 browser tests total). The local blocked file navigation was not retried.
 
 ## Follow-up polish
 
