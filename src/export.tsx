@@ -1,3 +1,4 @@
+import './tokens.css';
 import { createRoot } from 'react-dom/client';
 import { ExplanationViewer } from './components/ExplanationViewer.js';
 import type { ExplanationRevision } from '../shared/schema.js';

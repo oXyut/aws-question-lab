@@ -7,7 +7,6 @@ import {
   Clock3,
   CircleAlert,
   Monitor,
-  ListFilter,
   Code2,
   FileImage,
   FileText,
@@ -37,6 +36,7 @@ import { demoDocument } from '../shared/demo';
 import { ExplanationViewer } from './components/ExplanationViewer';
 import { GenerationProgress } from './components/GenerationProgress';
 import './shell.css';
+import './intake.css';
 
 type ApiError = Error & { code?: string };
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1077,38 +1077,48 @@ export default function App() {
           </>
         ) : (
           <div className="input-workspace">
-            <div className="input-heading">
-              <div className="breadcrumb">
-                学習ワークスペース <span>/</span> 新しい問題
+            <header className="input-heading">
+              <div>
+                <span className="eyebrow">QUESTION WORKBENCH</span>
+                <h1>{draft ? '読み取り内容を確認' : '新しい問題'}</h1>
+                <p>
+                  {draft
+                    ? '問題文と選択肢を確認して、図解へ進みましょう。'
+                    : '問題文を貼り付けるか、スクリーンショットを追加してください。'}
+                </p>
               </div>
-              <h1>問題を、構造から理解する。</h1>
-              <p>要件を読み解き、選択肢を比較し、AWSの仕組みを図でつかむ。</p>
               <button className="input-sample-button" disabled={busy} onClick={showSample}>
                 <FlaskConical size={17} />
                 サンプルを見てみる
                 <ArrowRight size={15} />
               </button>
-            </div>
-            <div className="input-stepper">
-              <span className={!draft ? 'active' : 'done'}>
+            </header>
+            <nav className="input-stepper" aria-label="解説までの手順">
+              <span
+                className={!draft ? 'active' : 'done'}
+                aria-current={!draft ? 'step' : undefined}
+              >
                 <i>{draft ? <Check size={13} /> : '1'}</i>問題を入力
               </span>
-              <span className={draft ? 'active' : ''}>
+              <span className={draft ? 'active' : ''} aria-current={draft ? 'step' : undefined}>
                 <i>2</i>内容を確認
               </span>
               <span>
                 <i>3</i>図解で理解
               </span>
-            </div>
-            <section className="input-card">
+            </nav>
+            <section
+              className="input-card"
+              aria-label={draft ? '読み取り結果の編集' : '問題の入力フォーム'}
+            >
               <div className="input-card-heading">
                 <div>
                   <FileText size={19} />
-                  <h2>{draft ? '読み取り内容を確認' : 'AWSの問題を入力'}</h2>
+                  <h2 id="input-section-title">
+                    {draft ? '問題文・選択肢の編集' : '問題文と選択肢'}
+                  </h2>
                 </div>
-                <span>
-                  {draft ? '必要に応じて編集できます' : 'テキスト・スクリーンショットに対応'}
-                </span>
+                <span>{draft ? '正解の入力は任意です' : '1回に1問 · 選択肢のない質問も対応'}</span>
               </div>
               {draft ? (
                 <DraftEditor draft={draft} onChange={setDraft} disabled={busy} />
@@ -1134,7 +1144,7 @@ export default function App() {
                       value={text}
                       onChange={(event) => setText(event.target.value)}
                       placeholder={
-                        '問題文と選択肢を、そのまま貼り付けてください。\n\n例：大量のイベントを取り込み、過去24時間のデータを再処理できる構成が必要です。運用負荷を最小限にするには、どのサービスを選ぶべきですか？\n\nA. …\nB. …'
+                        'ここに問題文と選択肢を貼り付け\n\nA. 最初の選択肢\nB. 次の選択肢\n\nスクリーンショットだけでも読み取れます。'
                       }
                       maxLength={30000}
                       disabled={busy}
@@ -1294,41 +1304,15 @@ export default function App() {
                 )}
               </div>
             </section>
-            <div className="feature-preview">
-              <div>
-                <span className="feature-icon">
-                  <Layers3 size={20} />
-                </span>
-                <strong>公式アイコンの構成図</strong>
-                <p>
-                  サービスのつながりと
-                  <br />
-                  データの流れをたどる。
-                </p>
-              </div>
-              <div>
-                <span className="feature-icon">
-                  <ListFilter size={20} />
-                </span>
-                <strong>要件から選択肢を検討</strong>
-                <p>
-                  どの一文が判断を決めるのか。
-                  <br />
-                  原文・図・評価を一緒に確認。
-                </p>
-              </div>
-              <div>
-                <span className="feature-icon">
-                  <BookOpen size={20} />
-                </span>
-                <strong>根拠まで、確認できる</strong>
-                <p>
-                  AWS公式資料を毎回調査。
-                  <br />
-                  出典と確認結果を解説に添付。
-                </p>
-              </div>
-            </div>
+            <p className="learning-path">
+              <BookOpen size={16} aria-hidden="true" />
+              <span>原文の要件</span>
+              <ArrowRight size={13} aria-hidden="true" />
+              <span>AWS構成図</span>
+              <ArrowRight size={13} aria-hidden="true" />
+              <span>選択肢の根拠</span>
+              <small>ひとつの画面で、つながる解説。</small>
+            </p>
           </div>
         )}
         <footer className="workspace-footer">

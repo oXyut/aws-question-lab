@@ -383,3 +383,32 @@ test('PNG upload reaches the extraction request and can be corrected before gene
   await expect(page.getByRole('button', { name: '中断', exact: true })).toBeVisible();
   expect(generationRequests).toBe(1);
 });
+
+test('question intake keeps the primary task readable at phone, tablet and desktop widths', async ({
+  page,
+}, testInfo) => {
+  await mockBase(page);
+  await page.goto('/');
+  const readButton = page.getByRole('button', { name: '問題を読み取る', exact: true });
+  await expect(readButton).toBeDisabled();
+  await page
+    .getByLabel('問題文と選択肢', { exact: true })
+    .fill(
+      '運用負荷を最小限にして、保存したデータを再処理できる構成を選んでください。\nA. Amazon S3を利用する\nB. EC2上で保存領域を運用する',
+    );
+  await expect(readButton).toBeEnabled();
+  for (const width of [375, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole('heading', { name: '新しい問題', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    if (width === 1440) await expect(readButton).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`intake-${width}.png`), fullPage: true });
+  }
+  await page.getByText('正解・元の解説を追加する（任意）', { exact: true }).press('Enter');
+  await expect(page.getByLabel('入力された正解', { exact: true })).toBeVisible();
+  await page.getByLabel('入力された正解', { exact: true }).fill('A');
+  await page.getByLabel('入力された正解', { exact: true }).press('Tab');
+  await expect(page.getByLabel('元の解説', { exact: true })).toBeFocused();
+});

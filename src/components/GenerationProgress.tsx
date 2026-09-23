@@ -205,107 +205,119 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
         </div>
       </div>
       <p className="progress-current-message">{job.error?.message ?? job.message}</p>
-      <ol className="progress-steps" aria-label="処理の段階">
-        {steps.map((step, index) => {
-          const current = active && currentStep === step.id;
-          const seen = recorded.has(step.id);
-          const interrupted = interruptedStep === step.id;
-          const state = current
-            ? 'current'
-            : interrupted
-              ? 'interrupted'
-              : seen
-                ? 'recorded'
-                : 'unrecorded';
-          return (
-            <li
-              key={step.id}
-              className={`progress-step ${state}`}
-              aria-current={current ? 'step' : undefined}
-            >
-              <span className="progress-step-number" aria-hidden="true">
-                {index + 1}
-              </span>
-              <span className="progress-step-copy">
-                <strong>{step.label}</strong>
-                <small>
-                  {current
-                    ? job.stage === 'repairing'
-                      ? '修復中'
-                      : '処理中'
-                    : interrupted
-                      ? '停止した段階'
-                      : seen
-                        ? '着手済み'
-                        : active
-                          ? '待機'
-                          : '記録なし'}
-                </small>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <div className="progress-detail-row">
-        <div className="progress-history">
-          <h3>
-            <History size={15} aria-hidden="true" />
-            直近の処理<span>実際の処理の記録</span>
-          </h3>
-          {activity.length ? (
-            <div aria-live="off">
-              {previous.length > 0 && (
-                <details className="progress-older-history">
-                  <summary>それ以前の記録を表示（{previous.length}件）</summary>
-                  {renderHistory(previous)}
-                </details>
-              )}
-              {renderHistory(recent, previous.length)}
-            </div>
-          ) : (
-            <p className="progress-history-empty">
-              この処理には過去の進捗記録がありません。上に最新の状態を表示しています。
-            </p>
-          )}
+      {!active && (
+        <p className="progress-outcome-note">
+          {job.status === 'completed'
+            ? extracting
+              ? '下の内容を確認・修正して、図解を生成できます。'
+              : '保存した解説で、要件と構成図を確認できます。'
+            : '入力内容は保持されています。再試行では同じ入力を使い、既存の解説も残ります。'}
+        </p>
+      )}
+      <details className="progress-records" key={`${job.id}-${active}`} open={active}>
+        <summary>処理の詳細と記録</summary>
+        <ol className="progress-steps" aria-label="処理の段階">
+          {steps.map((step, index) => {
+            const current = active && currentStep === step.id;
+            const seen = recorded.has(step.id);
+            const interrupted = interruptedStep === step.id;
+            const state = current
+              ? 'current'
+              : interrupted
+                ? 'interrupted'
+                : seen
+                  ? 'recorded'
+                  : 'unrecorded';
+            return (
+              <li
+                key={step.id}
+                className={`progress-step ${state}`}
+                aria-current={current ? 'step' : undefined}
+              >
+                <span className="progress-step-number" aria-hidden="true">
+                  {index + 1}
+                </span>
+                <span className="progress-step-copy">
+                  <strong>{step.label}</strong>
+                  <small>
+                    {current
+                      ? job.stage === 'repairing'
+                        ? '修復中'
+                        : '処理中'
+                      : interrupted
+                        ? '停止した段階'
+                        : seen
+                          ? '着手済み'
+                          : active
+                            ? '待機'
+                            : '記録なし'}
+                  </small>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="progress-detail-row">
+          <div className="progress-history">
+            <h3>
+              <History size={15} aria-hidden="true" />
+              直近の処理<span>実際の処理の記録</span>
+            </h3>
+            {activity.length ? (
+              <div aria-live="off">
+                {previous.length > 0 && (
+                  <details className="progress-older-history">
+                    <summary>それ以前の記録を表示（{previous.length}件）</summary>
+                    {renderHistory(previous)}
+                  </details>
+                )}
+                {renderHistory(recent, previous.length)}
+              </div>
+            ) : (
+              <p className="progress-history-empty">
+                この処理には過去の進捗記録がありません。上に最新の状態を表示しています。
+              </p>
+            )}
+          </div>
+          <aside
+            className={`progress-wait-note ${active && elapsed !== null && elapsed >= 90 ? 'long-wait' : ''}`}
+          >
+            {active && elapsed !== null && elapsed >= 90 ? (
+              <>
+                <strong>完了通知を待っています</strong>
+                <p>
+                  完了までの時間はまだ分かりません。入力は保持されています。このまま待つか、中断して再試行できます。
+                </p>
+              </>
+            ) : active ? (
+              <>
+                <strong>入力内容は保持されています</strong>
+                <p>
+                  {extracting
+                    ? '読み取り後に、問題文と選択肢を確認・修正できます。'
+                    : '調査・生成・検証の結果が届くと、この画面が更新されます。'}
+                </p>
+              </>
+            ) : job.status === 'completed' ? (
+              <>
+                <strong>
+                  {extracting ? '読み取り結果を確認してください' : '解説を表示できます'}
+                </strong>
+                <p>
+                  {extracting
+                    ? '読み取った内容は、解説を生成する前に編集できます。'
+                    : '要件・選択肢・図を選んで、根拠のつながりを確認できます。'}
+                </p>
+              </>
+            ) : (
+              <>
+                <strong>入力内容は保持されています</strong>
+                <p>再試行すると同じ入力を使います。既存の解説や、これまでの版も残っています。</p>
+              </>
+            )}
+          </aside>
         </div>
-        <aside
-          className={`progress-wait-note ${active && elapsed !== null && elapsed >= 90 ? 'long-wait' : ''}`}
-        >
-          {active && elapsed !== null && elapsed >= 90 ? (
-            <>
-              <strong>完了通知を待っています</strong>
-              <p>
-                完了までの時間はまだ分かりません。入力は保持されています。このまま待つか、中断して再試行できます。
-              </p>
-            </>
-          ) : active ? (
-            <>
-              <strong>入力内容は保持されています</strong>
-              <p>
-                {extracting
-                  ? '読み取り後に、問題文と選択肢を確認・修正できます。'
-                  : '調査・生成・検証の結果が届くと、この画面が更新されます。'}
-              </p>
-            </>
-          ) : job.status === 'completed' ? (
-            <>
-              <strong>
-                {extracting ? '読み取り結果を確認してください' : '解説を表示できます'}
-              </strong>
-              <p>
-                {extracting
-                  ? '読み取った内容は、解説を生成する前に編集できます。'
-                  : '要件・選択肢・図を選んで、根拠のつながりを確認できます。'}
-              </p>
-            </>
-          ) : (
-            <>
-              <strong>入力内容は保持されています</strong>
-              <p>再試行すると同じ入力を使います。既存の解説や、これまでの版も残っています。</p>
-            </>
-          )}
-        </aside>
-      </div>
+      </details>
     </section>
   );
 }

@@ -1,0 +1,97 @@
+/* Shared visual language for the app and the self-contained HTML viewer.
+   Brand orange identifies interaction; darker action/text colors carry readable labels. */
+:root {
+  --font-family-sans:
+    -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Segoe UI', sans-serif;
+
+  --color-brand: #192f49;
+  --color-on-brand: #fff;
+  --color-brand-hover: #29405c;
+  --color-brand-muted: #d2dbe6;
+  --color-brand-border: #7e8c9e;
+  --color-brand-icon: #ff991a;
+  --color-backdrop: #10243a42;
+  --color-accent: #df680d;
+  --color-accent-text: #9c4706;
+  --color-accent-bg: #fff2e3;
+  --color-accent-selected: #ffecd1;
+  --color-accent-border: #efc49c;
+  --color-action: #bf550b;
+  --color-action-hover: #a74707;
+  --color-on-action: #fff;
+  --color-on-dark: #fff;
+  --color-focus: #b85a0a;
+  --color-link: #1d609d;
+
+  --color-text: #20334f;
+  --color-text-strong: #192f49;
+  --color-text-secondary: #52657c;
+  --color-text-muted: #61738b;
+  --color-text-disabled: #8b98a9;
+  --color-surface: #fff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-hover: #edf2f7;
+  --color-background: #f5f7fa;
+  --color-border: #dfe6ee;
+  --color-border-strong: #bac7d6;
+  --color-divider: #e9eef4;
+
+  --color-success: #236145;
+  --color-success-bg: #edf7f0;
+  --color-success-border: #c3dfce;
+  --color-inferior: #435975;
+  --color-inferior-bg: #f0f3f7;
+  --color-inferior-border: #d4deea;
+  --color-danger: #a03535;
+  --color-danger-bg: #fff0ed;
+  --color-danger-border: #ebc0b9;
+  --color-warning: #826118;
+  --color-warning-bg: #fff9e6;
+  --color-warning-border: #e3d8b1;
+  --color-progress: #9c4706;
+  --color-progress-bg: #fff5e9;
+  --color-progress-border: #efc49c;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-xs: 4px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+
+  --font-size-micro: 10px;
+  --font-size-caption: 11px;
+  --font-size-small: 12px;
+  --font-size-compact: 13px;
+  --font-size-ui: 14px;
+  --font-size-reading: 15px;
+  --font-size-body: 16px;
+  --font-size-subheading: 18px;
+  --font-size-title: 20px;
+  --font-size-heading: 24px;
+
+  --shadow-sm: 0 2px 6px #19324d10;
+  --shadow-panel: 0 6px 18px #24385004;
+  --shadow-overlay: 0 14px 60px #10233b26;
+  --shadow-dock: 0 -3px 15px #192f4905;
+  --shadow-selected: 0 0 0 2px #df680d14;
+  --duration-fast: 140ms;
+
+  /* Compatibility for existing component rules; define all values in this file only. */
+  --navy: var(--color-brand);
+  --orange: var(--color-accent);
+  --border: var(--color-border);
+  --muted: var(--color-text-muted);
+  --bg: var(--color-background);
+  --radius: var(--radius-md);
+}

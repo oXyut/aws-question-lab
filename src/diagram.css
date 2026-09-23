@@ -4,7 +4,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: #fff;
+  background: var(--color-surface);
 }
 
 .architecture-diagram .diagram-canvas {
@@ -13,32 +13,32 @@
   height: auto;
   min-height: 340px;
   border: 0;
-  background: #fff;
+  background: var(--color-surface);
 }
 
 .architecture-diagram .react-flow {
-  background: #fff;
+  background: var(--color-surface);
 }
 
 .architecture-diagram .diagram-loading {
-  color: #79899e;
-  font-size: 14px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui);
 }
 
 .architecture-diagram .service-node {
   width: 190px;
   height: 178px;
   gap: 5px;
-  padding: 10px 5px 8px;
+  padding: 10px 5px var(--space-2);
   border: 0;
   border-radius: 9px;
   background: transparent;
   box-shadow: none;
-  color: #172f4d;
+  color: var(--color-text-strong);
   cursor: pointer;
   transition:
-    background-color 140ms,
-    opacity 140ms;
+    background-color var(--duration-fast),
+    opacity var(--duration-fast);
 }
 
 .architecture-diagram .service-node-icon {
@@ -48,7 +48,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #172f4d;
+  color: var(--color-text-strong);
 }
 
 .architecture-diagram .service-node-icon img {
@@ -61,7 +61,7 @@
   display: -webkit-box;
   width: 100%;
   margin: 0;
-  color: #18324f;
+  color: var(--color-text-strong);
   font-size: 17px;
   font-weight: 700;
   line-height: 1.25;
@@ -76,8 +76,8 @@
   display: -webkit-box;
   max-width: 176px;
   margin: 0;
-  color: #3c506a;
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-compact);
   font-weight: 400;
   line-height: 1.5;
   -webkit-line-clamp: 2;
@@ -89,7 +89,7 @@
 
 .architecture-diagram .service-node.is-active {
   border: 0;
-  background: #fff0df;
+  background: var(--color-accent-bg);
   box-shadow: none;
 }
 
@@ -99,11 +99,11 @@
 
 .architecture-diagram .react-flow__node.selected .service-node {
   outline: 0;
-  background: #fff0df;
+  background: var(--color-accent-bg);
 }
 
 .architecture-diagram .service-node:focus-visible {
-  outline: 2px solid #ce6b19;
+  outline: 2px solid var(--color-focus);
   outline-offset: 3px;
 }
 
@@ -146,8 +146,8 @@
   align-items: center;
   gap: 10px 14px;
   min-height: 58px;
-  padding: 9px 16px 12px;
-  background: #fff;
+  padding: 9px var(--space-4) var(--space-3);
+  background: var(--color-surface);
 }
 
 .architecture-diagram .diagram-zoom {
@@ -155,8 +155,8 @@
   align-items: center;
   flex: 0 0 auto;
   height: 36px;
-  border: 1px solid #d6e0eb;
-  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -172,22 +172,22 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 4px;
-  color: #314863;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-secondary);
   background: transparent;
 }
 
 .architecture-diagram .diagram-zoom-value {
   min-width: 54px;
   height: 25px;
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   border: 0;
-  border-right: 1px solid #e5eaf0;
-  border-left: 1px solid #e5eaf0;
+  border-right: 1px solid var(--color-divider);
+  border-left: 1px solid var(--color-divider);
   border-radius: 0;
-  color: #314863;
-  background: #fff;
-  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: var(--font-size-small);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -210,23 +210,23 @@
   gap: 9px;
   height: 36px;
   margin-right: 5px;
-  padding: 0 12px;
-  border: 1px solid #d6e0eb;
-  border-radius: 5px;
-  background: #fff;
-  color: #2b425e;
-  font-size: 12px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .architecture-diagram .diagram-toolbar button:hover:not(:disabled) {
-  background: #f2f5f8;
+  background: var(--color-surface-hover);
 }
 
 .architecture-diagram .diagram-toolbar button:focus-visible {
-  outline: 2px solid #ce6b19;
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -239,44 +239,44 @@
   display: flex;
   flex: 1 1 190px;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   padding: 0;
 }
 
 .architecture-diagram .flow-step .eyebrow {
-  color: #a56c36;
-  font-size: 12px;
+  color: var(--color-accent-text);
+  font-size: var(--font-size-small);
   letter-spacing: 0;
   white-space: nowrap;
 }
 
 .architecture-diagram .flow-step strong {
   margin: 0;
-  color: #465b74;
-  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
   line-height: 1.5;
 }
 
 .architecture-diagram .diagram-detail {
   flex: 0 0 auto;
   max-height: 118px;
-  padding: 12px 18px;
-  border-top: 1px solid #edf0f4;
+  padding: var(--space-3) 18px;
+  border-top: 1px solid var(--color-divider);
   border-bottom: 0;
-  background: #fff;
+  background: var(--color-surface);
   overflow: auto;
 }
 
 .architecture-diagram .diagram-detail > strong {
-  color: #2e4866;
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-compact);
 }
 
 .architecture-diagram .diagram-detail p {
-  margin-top: 4px;
-  color: #64758a;
-  font-size: 13px;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-compact);
   line-height: 1.7;
 }
 
@@ -295,7 +295,7 @@
   }
   .architecture-diagram .flow-play-button {
     gap: 6px;
-    padding: 0 8px;
+    padding: 0 var(--space-2);
   }
 }
 

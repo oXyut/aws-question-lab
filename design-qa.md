@@ -58,3 +58,15 @@ The direct `file://` HTML browser check was blocked by the browser URL policy an
 - [x] All identified P0/P1/P2 visual findings fixed and recaptured.
 - [x] Desktop/mobile, keyboard and core graph controls checked.
 - [x] Export uses the same viewer styles without stale inline layout overrides.
+
+## 2026-09-23 — 入力画面と共通トークンの改善
+
+- 根拠: `frontend-craft-adoption-proposal.md`、既存画面の実表示、`docs/frontend-craft-review.md` の配布物調査。設計の継続ルールは `docs/frontend-design.md` に集約し、AGENTS.mdから参照する。
+- 入力前後: 1440 × 900で、従来は読み取りボタンが画面下に隠れていた。ヒーローと3個の機能紹介を整理し、入力欄・画像・任意項目・主操作を1つの作業面に配置した。変更後は最初の画面に読み取りボタンが収まる。既存のサンプルと保存・送信の説明は維持。
+- 状態: 過去の失敗通知は、理由・再試行・入力保持の案内を表示し、処理段階とログは開閉式にした。処理中は詳細を初期展開し、実際のイベントと経過時間を引き続き表示する。通知の折りたたみにより、復旧操作と入力の両方を見渡せる。
+- トークン: `tokens.css` の同じ定義をアプリとHTML出力に使用する。補助文・状態文・フォーカスを強め、主ボタンの白文字は明るい装飾用オレンジから読みやすい濃いオレンジへ変更。
+- 図解: 1440 × 900で要件列が半分隠れる状態を確認し、デスクトップの原文を縮めて独立スクロールさせた。要件ボタン・構成図・評価の3者連動、構成切替、処理ステップを実ブラウザで再確認。
+- レスポンシブ: 入力画面を375 / 768 / 1440pxで確認。横方向のページはみ出しなし。375pxの手順ラベルが不自然に折り返す点を修正。モバイルの図解・評価タブ、長い日本語、任意項目のEnterでの開閉、入力フォーカスを確認。画面が短い場合は縦スクロールで主操作へ移動する。
+- ブラウザ確認にはアプリ内ブラウザと架空の入力・固定サンプルを使用。既存の失敗状態は表示のみ確認し、再生成は実行していない。実入力やログをGitに追加していない。
+- ローカルの69 unit testsとtypecheckは成功。production / offline viewer buildも成功。既存CIでは履歴・画像入力・追加質問・オフラインHTMLを含むE2Eに加え、375/768/1440pxの入力操作と失敗ログのキーボード開閉を検証する（対象コミットのChecksを参照）。
+- 今回は画面と開発基準の改善。モデル・生成速度・AI出力や出典照合の精度は変更していない。

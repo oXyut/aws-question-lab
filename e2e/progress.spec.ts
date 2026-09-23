@@ -168,6 +168,12 @@ test('legacy jobs without activity keep their terminal duration and remain usabl
   await page.setViewportSize({ width: 390, height: 844 });
   await openProgress(page, legacy);
   const progress = page.getByRole('region', { name: '生成の進行状況' });
+  await expect(progress.locator('.progress-records')).not.toHaveAttribute('open');
+  await expect(progress.getByText('処理の詳細と記録', { exact: true })).toBeVisible();
+  await expect(progress.locator('.progress-outcome-note')).toContainText(
+    '入力内容は保持されています',
+  );
+  await progress.getByText('処理の詳細と記録', { exact: true }).press('Enter');
   await expect(progress.locator('.progress-history-empty')).toContainText(
     '過去の進捗記録がありません',
   );
