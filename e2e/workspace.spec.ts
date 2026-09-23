@@ -329,6 +329,23 @@ test('PNG upload reaches the extraction request and can be corrected before gene
   page,
 }) => {
   await mockBase(page);
+  let generationRequests = 0;
+  await page.route('**/api/generate', (route) => {
+    generationRequests++;
+    const { question } = route.request().postDataJSON();
+    expect(question.options[1].text).toBe('修正した選択肢');
+    expect(question.uncertainties).toEqual([]);
+    return route.fulfill({
+      status: 202,
+      json: { job: job('generate-image', 'generate') },
+    });
+  });
+  await page.route('**/api/jobs/generate-image/events', (route) =>
+    route.fulfill({
+      contentType: 'text/event-stream',
+      body: `event: job\ndata: ${JSON.stringify(job('generate-image', 'generate'))}\n\n`,
+    }),
+  );
   await page.route('**/api/extract', (route) => {
     const body = route.request().postDataBuffer()!;
     expect(body.toString()).toContain('filename="question.png"');
@@ -354,6 +371,13 @@ test('PNG upload reaches the extraction request and can be corrected before gene
   await page.getByRole('button', { name: /問題を読み取る/ }).click();
   await expect(page.getByText('画像の選択肢Bの文字を確認してください。')).toBeVisible();
   await page.getByLabel('選択肢 B の内容', { exact: true }).fill('修正した選択肢');
-  await page.getByRole('button', { name: /確認・修正しました/ }).click();
-  await expect(page.getByRole('button', { name: /図解を生成する/ })).toBeEnabled();
+  const confirm = page.getByRole('button', { name: '確認して図解を生成する', exact: true });
+  await expect(confirm).toBeEnabled();
+  expect(generationRequests).toBe(0);
+  await confirm.click();
+  const progress = page.getByRole('region', { name: '生成の進行状況', exact: true });
+  await expect(progress).toBeFocused();
+  await expect(progress.locator('.progress-title')).toBeInViewport();
+  await expect(page.getByRole('button', { name: '中断', exact: true })).toBeVisible();
+  expect(generationRequests).toBe(1);
 });

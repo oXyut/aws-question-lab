@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleAlert, Clock3, History, Loader2, RefreshCw, Square, X } from 'lucide-react';
 import type { GenerationJob } from '../../shared/schema';
 
@@ -88,6 +88,14 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
   const active = job.status === 'running' || job.status === 'queued';
   const extracting = job.kind === 'extract';
   const [now, setNow] = useState(Date.now);
+  const progressRef = useRef<HTMLElement>(null);
+  const revealedJob = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active || revealedJob.current === job.id) return;
+    revealedJob.current = job.id;
+    progressRef.current?.scrollIntoView({ block: 'start' });
+    progressRef.current?.focus({ preventScroll: true });
+  }, [active, job.id]);
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
@@ -137,7 +145,12 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
   );
 
   return (
-    <section className={`generation-progress job-${job.status}`} aria-label="生成の進行状況">
+    <section
+      ref={progressRef}
+      className={`generation-progress job-${job.status}`}
+      aria-label="生成の進行状況"
+      tabIndex={-1}
+    >
       <div className="progress-heading">
         <span className={`progress-status-icon ${active ? 'active' : ''}`} aria-hidden="true">
           {active ? (

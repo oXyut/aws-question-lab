@@ -65,6 +65,86 @@ test('public CLI errors classify failures without exposing stderr', () => {
   assert.equal(safeCliError('usage_limit_reached').code, 'USAGE_LIMIT');
   assert.equal(safeCliError('stream disconnected: network').code, 'NETWORK');
 });
+test('text-only extraction identifies absent optional inputs without asking the model to invent warnings or an answer', async () => {
+  const input = {
+    text: 'S3上のログをSQLで分析します。A. Athena B. EC2',
+    knownAnswer: '',
+    originalExplanation: '',
+    images: [],
+  };
+  const extracted = {
+    ...structuredClone(demoDocument.question),
+    knownAnswerIds: [],
+    uncertainties: [],
+  };
+  const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+  adapter.run = async (schema, prompt, images, research) => {
+    assert.deepEqual(images, []);
+    assert.equal(research, false);
+    assert.match(prompt, /画像添付枚数（アプリが確認）: 0枚/);
+    assert.match(prompt, /未添付であることだけを理由に画像の確認不能をuncertaintiesに記入しない/);
+    assert.match(prompt, /資料に正解が明示されていなければknownAnswerIds=\[\]/);
+    assert.match(prompt, /未入力・未記載をuncertaintiesに含めない/);
+    assert.match(prompt, /正解を自分で解いて補完しない/);
+    assert.deepEqual(JSON.parse(prompt.split('資料(JSON):\n')[1]), {
+      text: input.text,
+      knownAnswer: '',
+      originalExplanation: '',
+    });
+    return { value: schema.parse(extracted), searched: false };
+  };
+  const result = await adapter.extract(input, new AbortController().signal, () => {});
+  assert.deepEqual(result.value.knownAnswerIds, []);
+  assert.deepEqual(result.value.uncertainties, []);
+});
+test('extraction preserves genuine uncertainty for unreadable attachments, missing referenced diagrams and unmatched provided answers', async () => {
+  const cases = [
+    {
+      text: '',
+      knownAnswer: '',
+      images: ['/private/fixture-one.png', '/private/fixture-two.webp'],
+      warning: '2枚目の画像の選択肢B末尾が不明瞭です。',
+    },
+    {
+      text: '次の図の構成を使います。図の処理順を確認してください。',
+      knownAnswer: '',
+      images: [],
+      warning: '問題文が参照する図がないため、処理順を確認できません。',
+    },
+    {
+      text: 'A. Athena B. EC2',
+      knownAnswer: 'Z',
+      images: [],
+      warning: '提供された正解Zに対応する選択肢がありません。',
+    },
+  ];
+  for (const item of cases) {
+    const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+    adapter.run = async (schema, prompt, images, research) => {
+      assert.deepEqual(images, item.images);
+      assert.equal(research, false);
+      assert.match(prompt, new RegExp(`画像添付枚数（アプリが確認）: ${item.images.length}枚`));
+      if (item.images.length) {
+        assert.match(prompt, /画像を実際に読み取れない場合はuncertaintiesに具体的に明記/);
+        assert.ok(!prompt.includes('今回はテキストだけの入力です'));
+      } else assert.match(prompt, /必要な図表を明示的に参照.*具体的な不足として記入/);
+      assert.match(prompt, /提供された正解が選択肢に対応しない.*uncertaintiesに残します/);
+      return {
+        value: schema.parse({
+          ...structuredClone(demoDocument.question),
+          uncertainties: [item.warning],
+        }),
+        searched: false,
+      };
+    };
+    const result = await adapter.extract(
+      { ...item, originalExplanation: '' },
+      new AbortController().signal,
+      () => {},
+    );
+    assert.deepEqual(result.value.uncertainties, [item.warning]);
+  }
+});
 test('question-specific output requires every option and maps it back to the shared array format', async () => {
   const explanation = structuredClone(demoDocument.revisions[0].explanation);
   const wire = {

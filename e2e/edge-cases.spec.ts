@@ -286,6 +286,70 @@ test('reloading preserves the edited draft instead of reapplying the completed e
   );
 });
 
+test('reading notes can be confirmed beside generation without requiring a known answer', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const draft = {
+    ...structuredClone(demoQuestion),
+    knownAnswerIds: [],
+    uncertainties: ['既知の正解は未入力です。', '問題文の条件を確認してください。'],
+  };
+  const job: GenerationJob = {
+    id: 'reading-notes',
+    kind: 'extract',
+    status: 'completed',
+    stage: 'completed',
+    message: 'テスト用の読み取り結果',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    result: { draft },
+  };
+  let generationRequests = 0;
+  await page.route('**/api/health', (route) => route.fulfill({ json: health }));
+  await page.route('**/api/documents', (route) => route.fulfill({ json: { documents: [] } }));
+  await page.route('**/api/extract', (route) => route.fulfill({ status: 202, json: { job } }));
+  await page.route('**/api/jobs/reading-notes', (route) => route.fulfill({ json: { job } }));
+  await page.route('**/api/generate', (route) => {
+    generationRequests++;
+    const question = route.request().postDataJSON().question;
+    expect(question.knownAnswerIds).toEqual([]);
+    expect(question.uncertainties).toEqual([]);
+    expect(question.text).toBe(`${draft.text}\n確認して修正した条件。`);
+    return route.fulfill({
+      status: 503,
+      json: { error: { message: 'テスト用の通信エラー' } },
+    });
+  });
+  await page.goto('/');
+  await page.getByLabel('問題文と選択肢', { exact: true }).fill('正解なしの確認用問題');
+  await page.getByRole('button', { name: /問題を読み取る/ }).click();
+  await page.getByLabel('問題文', { exact: true }).fill(`${draft.text}\n確認して修正した条件。`);
+  await page.reload();
+  const confirm = page.getByRole('button', { name: '確認して図解を生成する', exact: true });
+  await expect(confirm).toBeEnabled();
+  await page.getByLabel('選択肢 B の内容', { exact: true }).fill('');
+  await expect(confirm).toBeDisabled();
+  await page.getByLabel('選択肢 B の内容', { exact: true }).fill(draft.options[1].text);
+  await expect(confirm).toBeEnabled();
+  await confirm.scrollIntoViewIfNeeded();
+  await expect(page.getByText('読み取りの確認事項（2件）', { exact: true })).toBeInViewport();
+  expect(generationRequests).toBe(0);
+  await confirm.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('テスト用の通信エラー', { exact: true })).toBeVisible();
+  expect(generationRequests).toBe(1);
+  await expect(page.getByLabel('問題文', { exact: true })).toHaveValue(
+    `${draft.text}\n確認して修正した条件。`,
+  );
+  await expect(page.getByRole('button', { name: '図解を生成する', exact: true })).toBeEnabled();
+  await page.reload();
+  await expect(page.getByLabel('問題文', { exact: true })).toHaveValue(
+    `${draft.text}\n確認して修正した条件。`,
+  );
+  await expect(page.getByRole('button', { name: '図解を生成する', exact: true })).toBeEnabled();
+});
+
 test('an impossible selection count cannot trigger generation', async ({ page }) => {
   const job: GenerationJob = {
     id: 'count-validation',

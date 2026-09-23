@@ -114,27 +114,6 @@ function DraftEditor({
     });
   return (
     <div className="draft-editor">
-      {!!draft.uncertainties.length && (
-        <div className="notice warning">
-          <Search size={18} />
-          <div>
-            <strong>読み取り内容を確認してください</strong>
-            <ul>
-              {draft.uncertainties.map((item, index) => (
-                <li key={index}>{item}</li>
-              ))}
-            </ul>
-            <button
-              className="text-button"
-              disabled={disabled}
-              onClick={() => onChange({ ...draft, uncertainties: [] })}
-            >
-              <Check size={15} />
-              確認・修正しました
-            </button>
-          </div>
-        </div>
-      )}
       <label className="field-label" htmlFor="draft-title">
         タイトル
       </label>
@@ -566,11 +545,13 @@ export default function App() {
     void runJob('/api/extract', { body: data });
   };
   const generate = () => {
-    if (!draft) return;
+    if (!draft || !validDraft || busy || !ready) return;
+    const confirmedDraft = { ...draft, uncertainties: [] };
     const question =
       draft.selectionMode === 'none'
-        ? { ...draft, options: [], knownAnswerIds: [], selectionCount: null }
-        : draft;
+        ? { ...confirmedDraft, options: [], knownAnswerIds: [], selectionCount: null }
+        : confirmedDraft;
+    setDraft(question);
     void runJob('/api/generate', {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question }),
@@ -651,7 +632,6 @@ export default function App() {
   };
   const validDraft =
     draft &&
-    !draft.uncertainties.length &&
     draft.text.trim() &&
     (draft.selectionMode === 'none' ||
       (draft.options.length > 0 &&
@@ -1248,6 +1228,29 @@ export default function App() {
                   </details>
                 </>
               )}
+              {!!draft?.uncertainties.length && (
+                <section
+                  className="draft-review notice warning"
+                  aria-labelledby="draft-review-title"
+                >
+                  <CircleAlert size={18} aria-hidden="true" />
+                  <div>
+                    <strong id="draft-review-title">
+                      読み取りの確認事項（{draft.uncertainties.length}件）
+                    </strong>
+                    <ul>
+                      {draft.uncertainties.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                    <p id="draft-review-help">
+                      問題文と選択肢を確認し、必要なら上の欄で修正してください。
+                      「確認して図解を生成する」を押すと、表示中の内容で生成を開始します。
+                      正解の入力は任意です。
+                    </p>
+                  </div>
+                </section>
+              )}
               <div className="input-card-footer">
                 <div>
                   <span className="privacy-dot" />
@@ -1262,10 +1265,13 @@ export default function App() {
                     <button
                       className="primary-button"
                       disabled={busy || !ready || !validDraft}
+                      aria-describedby={
+                        draft.uncertainties.length ? 'draft-review-help' : undefined
+                      }
                       onClick={generate}
                     >
                       {busy ? <Loader2 size={17} className="spin" /> : <Layers3 size={17} />}
-                      図解を生成する
+                      {draft.uncertainties.length ? '確認して図解を生成する' : '図解を生成する'}
                       <ArrowRight size={16} />
                     </button>
                   </div>

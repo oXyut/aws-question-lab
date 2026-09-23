@@ -580,6 +580,24 @@
     padding: 0;
   }
 }
+.workbench-shell .generation-progress {
+  scroll-margin-top: 90px;
+}
+.workbench-shell .draft-review {
+  margin: 0 24px 18px;
+}
+.workbench-shell .draft-review > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.workbench-shell .draft-review p {
+  margin: 8px 0 0;
+}
+@media (max-width: 760px) {
+  .workbench-shell .draft-review {
+    margin: 0 16px 16px;
+  }
+}
 .workbench-shell .previous-generation {
   margin: 10px 24px;
   border: 1px solid #e1e6ee;
