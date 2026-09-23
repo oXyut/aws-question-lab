@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Clock3,
   CircleAlert,
-  Monitor,
   Code2,
   FileImage,
   FileText,
@@ -38,6 +37,7 @@ import { ExplanationViewer } from './components/ExplanationViewer';
 import { GenerationProgress } from './components/GenerationProgress';
 import './shell.css';
 import './intake.css';
+import './progress.css';
 
 type ApiError = Error & { code?: string };
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -405,23 +405,26 @@ export default function App() {
       return null;
     }
   }, []);
-  const saveModel = useCallback(async (model: ModelName) => {
-    setModelSaving(true);
-    try {
-      const result = await api<Health>('/api/settings/model', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-      });
-      setHealth(result);
-      setToast('使用するモデルを保存しました。');
-    } catch (err) {
-      setError(errorMessage(err));
-      void refreshHealth();
-    } finally {
-      setModelSaving(false);
-    }
-  }, [refreshHealth]);
+  const saveModel = useCallback(
+    async (model: ModelName) => {
+      setModelSaving(true);
+      try {
+        const result = await api<Health>('/api/settings/model', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+        setHealth(result);
+        setToast('使用するモデルを保存しました。');
+      } catch (err) {
+        setError(errorMessage(err));
+        void refreshHealth();
+      } finally {
+        setModelSaving(false);
+      }
+    },
+    [refreshHealth],
+  );
   useEffect(() => {
     void refreshHealth().then((result) => {
       const previousJob = result?.activeJobId ?? saved.jobId;
@@ -574,7 +577,12 @@ export default function App() {
     const confirmedDraft = { ...draft, uncertainties: [] };
     const question =
       draft.selectionMode === 'none'
-        ? { ...confirmedDraft, options: [], knownAnswerIds: [], selectionCount: null }
+        ? {
+            ...confirmedDraft,
+            options: [],
+            knownAnswerIds: [],
+            selectionCount: null,
+          }
         : confirmedDraft;
     setDraft(question);
     void runJob('/api/generate', {
@@ -745,6 +753,7 @@ export default function App() {
   );
   const generationProgress = job ? (
     <GenerationProgress
+      key={job.id}
       job={job}
       retrying={submitting}
       onCancel={() => void cancel()}
@@ -761,7 +770,7 @@ export default function App() {
   ) : null;
   return (
     <div
-      className={`app-shell workbench-shell ${document && revision ? 'has-explanation' : 'has-input'}`}
+      className={`app-shell workbench-shell ${document && revision ? 'has-explanation' : 'has-input'} ${job && (!demo || isActive(job)) ? 'has-progress' : ''}`}
     >
       <header className="app-header">
         <button className="brand" onClick={closeDrawers} aria-label="AWS Question Lab 学習画面">
@@ -770,10 +779,9 @@ export default function App() {
           </span>
           <span>
             AWS <strong>Question Lab</strong>
-            <small>問題から、理解へ。</small>
           </span>
         </button>
-        <div className="header-right">
+        <nav className="header-right" aria-label="メインナビゲーション">
           <button
             className="topbar-action"
             aria-label="問題を追加"
@@ -793,52 +801,30 @@ export default function App() {
             {exporting ? <Loader2 className="spin" size={18} /> : <FileText size={18} />}
             <span>HTML保存</span>
           </button>
-          <span className="topbar-divider" aria-hidden="true" />
           <button
-            className="workspace-switcher"
-            aria-label="ローカルワークスペースの接続情報"
+            className="topbar-action"
+            aria-label="履歴"
+            aria-expanded={sidebarOpen}
+            aria-controls="history-drawer"
+            aria-haspopup="dialog"
+            onClick={openHistory}
+          >
+            <History size={18} />
+            <span>履歴</span>
+          </button>
+          <button
+            className="topbar-action"
+            aria-label="接続"
             aria-expanded={connectionOpen}
             aria-controls="connection-drawer"
             aria-haspopup="dialog"
             onClick={openConnection}
           >
-            <Monitor size={15} />
-            <span>ローカルワークスペース</span>
-            <small>v0.1</small>
-            <ChevronDown size={15} />
+            <Settings size={18} />
+            <span>接続</span>
           </button>
-        </div>
+        </nav>
       </header>
-      <nav className="navigation-rail" aria-label="メインナビゲーション">
-        <button
-          className={`rail-button ${!drawerOpen ? 'active' : ''}`}
-          aria-current={!drawerOpen ? 'page' : undefined}
-          onClick={closeDrawers}
-        >
-          <BookOpen size={26} strokeWidth={1.7} />
-          <span>学習</span>
-        </button>
-        <button
-          className={`rail-button ${sidebarOpen ? 'active' : ''}`}
-          aria-expanded={sidebarOpen}
-          aria-controls="history-drawer"
-          aria-haspopup="dialog"
-          onClick={openHistory}
-        >
-          <FileText size={25} strokeWidth={1.7} />
-          <span>履歴</span>
-        </button>
-        <button
-          className={`rail-button ${connectionOpen ? 'active' : ''}`}
-          aria-expanded={connectionOpen}
-          aria-controls="connection-drawer"
-          aria-haspopup="dialog"
-          onClick={openConnection}
-        >
-          <Settings size={25} strokeWidth={1.7} />
-          <span>接続</span>
-        </button>
-      </nav>
       {drawerOpen && (
         <button
           className="shell-drawer-backdrop"
@@ -987,7 +973,9 @@ export default function App() {
                 <select
                   id="question-lab-model"
                   aria-label="使用するモデル"
-                  value={ModelSchema.safeParse(health?.model).success ? health!.model : DEFAULT_MODEL}
+                  value={
+                    ModelSchema.safeParse(health?.model).success ? health!.model : DEFAULT_MODEL
+                  }
                   disabled={!ready || busy || modelSaving}
                   onChange={(event) => {
                     const parsed = ModelSchema.safeParse(event.target.value);
@@ -1051,28 +1039,6 @@ export default function App() {
             </div>
           </div>
         )}
-        {job &&
-          (!demo || isActive(job)) &&
-          (document && !isActive(job) ? (
-            <details className="previous-generation">
-              <summary>
-                {job.status === 'completed' ? <Check size={15} /> : <CircleAlert size={15} />}
-                <strong>
-                  前回の生成：
-                  {job.status === 'completed'
-                    ? '完了'
-                    : job.status === 'cancelled'
-                      ? '中断'
-                      : '失敗'}
-                </strong>
-                <span>処理の詳細を表示</span>
-                <ChevronDown size={15} />
-              </summary>
-              {generationProgress}
-            </details>
-          ) : (
-            generationProgress
-          ))}
         {document && revision ? (
           <>
             <h1 className="sr-only">{revision.explanation.title}</h1>
@@ -1357,6 +1323,7 @@ export default function App() {
           <span>AWS Architecture Icons を使用 · 個人学習用ワークスペース</span>
         </footer>
       </main>
+      {job && (!demo || isActive(job)) && generationProgress}
       {toast && (
         <div className="toast" role="status">
           <Check size={17} />

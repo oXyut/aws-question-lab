@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleAlert, Clock3, History, Loader2, RefreshCw, Square, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  Clock3,
+  History,
+  Loader2,
+  RefreshCw,
+  Square,
+  X,
+} from 'lucide-react';
 import type { GenerationJob } from '../../shared/schema';
 
 type Activity = NonNullable<GenerationJob['activity']>[number];
@@ -88,14 +100,18 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
   const active = job.status === 'running' || job.status === 'queued';
   const extracting = job.kind === 'extract';
   const [now, setNow] = useState(Date.now);
-  const progressRef = useRef<HTMLElement>(null);
-  const revealedJob = useRef<string | null>(null);
+  const [expanded, setExpanded] = useState(active || job.status === 'failed');
   useEffect(() => {
-    if (!active || revealedJob.current === job.id) return;
-    revealedJob.current = job.id;
-    progressRef.current?.scrollIntoView({ block: 'start' });
-    progressRef.current?.focus({ preventScroll: true });
-  }, [active, job.id]);
+    if (job.status === 'completed') setExpanded(false);
+    if (job.status === 'failed') setExpanded(true);
+  }, [job.status]);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const followHistory = useRef(true);
+  useEffect(() => {
+    if (expanded && followHistory.current && historyRef.current) {
+      historyRef.current.scrollTop = historyRef.current.scrollHeight;
+    }
+  }, [job.activity, expanded]);
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
@@ -126,8 +142,6 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
   const steps = extracting ? extractionSteps : generationSteps;
   const currentStep = stepFor(job.stage, extracting);
   const recorded = new Set(activity.map((item) => stepFor(item.stage, extracting)).filter(Boolean));
-  const recent = activity.slice(-5);
-  const previous = activity.slice(0, -5);
   const lastRecordedStep = [...activity]
     .reverse()
     .map((item) => stepFor(item.stage, extracting))
@@ -146,13 +160,11 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
 
   return (
     <section
-      ref={progressRef}
-      className={`generation-progress job-${job.status}`}
+      className={`generation-progress generation-dock job-${job.status} ${expanded ? 'is-expanded' : ''}`}
       aria-label="生成の進行状況"
-      tabIndex={-1}
     >
-      <div className="progress-heading">
-        <span className={`progress-status-icon ${active ? 'active' : ''}`} aria-hidden="true">
+      <div className="dock-heading">
+        <span className={`dock-status ${active ? 'active' : ''}`} aria-hidden="true">
           {active ? (
             <Loader2 size={21} className="spin" />
           ) : job.status === 'completed' ? (
@@ -163,8 +175,14 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
             <CircleAlert size={21} />
           )}
         </span>
-        <div className="progress-heading-copy">
-          <span className="progress-kind">
+        <button
+          className="dock-toggle"
+          aria-expanded={expanded}
+          aria-controls={`progress-body-${job.id}`}
+          aria-label="処理の詳細と記録"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="dock-kind">
             {extracting
               ? '問題の読み取り'
               : job.kind === 'followup'
@@ -174,49 +192,28 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
           <strong className="progress-title" role="status" aria-live="polite" aria-atomic="true">
             {currentTitle(job)}
           </strong>
-        </div>
-        <div className="progress-elapsed" role="timer" aria-live="off" aria-label="経過時間">
-          <Clock3 size={15} aria-hidden="true" />
-          <span>経過</span>
+        </button>
+        <div className="dock-timer" role="timer" aria-live="off" aria-label="経過時間">
+          <Clock3 size={13} aria-hidden="true" />
           <time dateTime={elapsed === null ? undefined : `PT${elapsed}S`}>
             {durationLabel(elapsed)}
           </time>
         </div>
-        <div className="progress-actions">
-          {active ? (
-            <button
-              className="secondary-button compact"
-              disabled={job.stage === 'cancelling'}
-              onClick={onCancel}
-            >
-              <Square size={13} />
-              {job.stage === 'cancelling' ? '中断処理中' : '中断'}
-            </button>
-          ) : job.status === 'failed' || job.status === 'cancelled' ? (
-            <button className="secondary-button compact" disabled={retrying} onClick={onRetry}>
-              <RefreshCw size={14} />
-              再試行
-            </button>
-          ) : (
-            <button className="icon-button" aria-label="完了通知を閉じる" onClick={onDismiss}>
-              <X size={16} />
-            </button>
-          )}
-        </div>
+        <button
+          className="icon-button"
+          aria-label={expanded ? '処理状況を最小化' : '処理状況を展開'}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+        </button>
+        {!active && (
+          <button className="icon-button" aria-label="完了通知を閉じる" onClick={onDismiss}>
+            <X size={16} />
+          </button>
+        )}
       </div>
-      <p className="progress-current-message">{job.error?.message ?? job.message}</p>
-      {!active && (
-        <p className="progress-outcome-note">
-          {job.status === 'completed'
-            ? extracting
-              ? '下の内容を確認・修正して、図解を生成できます。'
-              : '保存した解説で、要件と構成図を確認できます。'
-            : '入力内容は保持されています。再試行では同じ入力を使い、既存の解説も残ります。'}
-        </p>
-      )}
-      <details className="progress-records" key={`${job.id}-${active}`} open={active}>
-        <summary>処理の詳細と記録</summary>
-        <ol className="progress-steps" aria-label="処理の段階">
+      <div id={`progress-body-${job.id}`} className="dock-body" hidden={!expanded}>
+        <ol className="dock-pipeline" aria-label="処理の段階">
           {steps.map((step, index) => {
             const current = active && currentStep === step.id;
             const seen = recorded.has(step.id);
@@ -234,90 +231,92 @@ export function GenerationProgress({ job, retrying, onCancel, onRetry, onDismiss
                 className={`progress-step ${state}`}
                 aria-current={current ? 'step' : undefined}
               >
-                <span className="progress-step-number" aria-hidden="true">
-                  {index + 1}
+                <span className="pipeline-node" aria-hidden="true">
+                  {current ? <Loader2 size={17} className="spin" /> : index + 1}
                 </span>
-                <span className="progress-step-copy">
-                  <strong>{step.label}</strong>
-                  <small>
-                    {current
-                      ? job.stage === 'repairing'
-                        ? '修復中'
-                        : '処理中'
-                      : interrupted
-                        ? '停止した段階'
-                        : seen
-                          ? '着手済み'
-                          : active
-                            ? '待機'
-                            : '記録なし'}
-                  </small>
-                </span>
+                <strong>{step.label}</strong>
+                <small>
+                  {current
+                    ? job.stage === 'repairing'
+                      ? '修復中'
+                      : '処理中'
+                    : interrupted
+                      ? '停止した段階'
+                      : seen
+                        ? '着手済み'
+                        : active
+                          ? '待機'
+                          : '記録なし'}
+                </small>
+                {index < steps.length - 1 && (
+                  <span className="pipeline-connector" aria-hidden="true">
+                    <ArrowRight size={14} />
+                  </span>
+                )}
               </li>
             );
           })}
         </ol>
-        <div className="progress-detail-row">
-          <div className="progress-history">
-            <h3>
-              <History size={15} aria-hidden="true" />
-              直近の処理<span>実際の処理の記録</span>
-            </h3>
-            {activity.length ? (
-              <div aria-live="off">
-                {previous.length > 0 && (
-                  <details className="progress-older-history">
-                    <summary>それ以前の記録を表示（{previous.length}件）</summary>
-                    {renderHistory(previous)}
-                  </details>
-                )}
-                {renderHistory(recent, previous.length)}
-              </div>
-            ) : (
-              <p className="progress-history-empty">
-                この処理には過去の進捗記録がありません。上に最新の状態を表示しています。
-              </p>
-            )}
-          </div>
-          <aside
-            className={`progress-wait-note ${active && elapsed !== null && elapsed >= 90 ? 'long-wait' : ''}`}
-          >
-            {active && elapsed !== null && elapsed >= 90 ? (
-              <>
-                <strong>完了通知を待っています</strong>
-                <p>
-                  完了までの時間はまだ分かりません。入力は保持されています。このまま待つか、中断して再試行できます。
-                </p>
-              </>
-            ) : active ? (
-              <>
-                <strong>入力内容は保持されています</strong>
-                <p>
-                  {extracting
-                    ? '読み取り後に、問題文と選択肢を確認・修正できます。'
-                    : '調査・生成・検証の結果が届くと、この画面が更新されます。'}
-                </p>
-              </>
-            ) : job.status === 'completed' ? (
-              <>
-                <strong>
-                  {extracting ? '読み取り結果を確認してください' : '解説を表示できます'}
-                </strong>
-                <p>
-                  {extracting
-                    ? '読み取った内容は、解説を生成する前に編集できます。'
-                    : '要件・選択肢・図を選んで、根拠のつながりを確認できます。'}
-                </p>
-              </>
-            ) : (
-              <>
-                <strong>入力内容は保持されています</strong>
-                <p>再試行すると同じ入力を使います。既存の解説や、これまでの版も残っています。</p>
-              </>
-            )}
-          </aside>
+        <div className="dock-message" role={job.status === 'failed' ? 'alert' : undefined}>
+          <p className="progress-current-message">{job.error?.message ?? job.message}</p>
+          {!active && (
+            <p className="progress-outcome-note">
+              {job.status === 'completed'
+                ? extracting
+                  ? '読み取り内容を確認・修正して、図解を生成できます。'
+                  : '解説を保存しました。要件と構成図を確認できます。'
+                : '入力内容は保持されています。同じ入力で再試行できます。'}
+            </p>
+          )}
         </div>
-      </details>
+        <div className="dock-history-heading">
+          <History size={14} />
+          <strong>処理の記録</strong>
+          <span>{activity.length}件</span>
+        </div>
+        <div
+          className="dock-history"
+          ref={historyRef}
+          tabIndex={0}
+          aria-label="処理の記録一覧"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            followHistory.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
+        >
+          {activity.length ? (
+            renderHistory(activity)
+          ) : (
+            <p className="progress-history-empty">この処理には過去の進捗記録がありません。</p>
+          )}
+        </div>
+        <div className="dock-footer">
+          <p className="progress-wait-note">
+            {active
+              ? elapsed !== null && elapsed >= 90
+                ? '完了通知を待っています。入力は保持されています。'
+                : '処理中もこの画面で学習を続けられます。'
+              : '入力と既存の解説は保持されています。'}
+          </p>
+          {active ? (
+            <button
+              className="secondary-button compact"
+              disabled={job.stage === 'cancelling'}
+              onClick={onCancel}
+            >
+              <Square size={13} />
+              {job.stage === 'cancelling' ? '中断処理中' : '中断'}
+            </button>
+          ) : (
+            (job.status === 'failed' || job.status === 'cancelled') && (
+              <button className="secondary-button compact" disabled={retrying} onClick={onRetry}>
+                <RefreshCw size={14} />
+                再試行
+              </button>
+            )
+          )}
+        </div>
+      </div>
     </section>
   );
 }

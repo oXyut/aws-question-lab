@@ -202,43 +202,6 @@
 .workbench-shell .draft-review {
   border-radius: var(--radius-xs);
 }
-.workbench-shell .generation-progress {
-  border-radius: var(--radius-md);
-  box-shadow: none;
-}
-.workbench-shell.has-input .main-content > .generation-progress,
-.workbench-shell.has-input .main-content > .notice {
-  max-width: 1040px;
-}
-.workbench-shell .progress-records {
-  margin-top: var(--space-3);
-  border-top: 1px solid var(--color-divider);
-}
-.workbench-shell .progress-records > summary {
-  width: fit-content;
-  padding: var(--space-3) 0;
-  min-height: 44px;
-  font-size: var(--font-size-small);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-.workbench-shell .progress-records .progress-steps {
-  margin-top: 0;
-}
-.workbench-shell .progress-outcome-note {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  line-height: 1.8;
-  margin-top: var(--space-2);
-}
-.workbench-shell .generation-progress:not(.job-running):not(.job-queued) {
-  padding: var(--space-4) var(--space-5) 0;
-}
-.workbench-shell .generation-progress:not(.job-running):not(.job-queued) .progress-current-message {
-  font-size: var(--font-size-small);
-  margin-top: var(--space-2);
-}
 @media (max-width: 1000px) {
   .workbench-shell .input-heading {
     align-items: flex-start;

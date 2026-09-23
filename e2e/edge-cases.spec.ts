@@ -80,9 +80,8 @@ test('multiple selections explain the combination without treating each service 
   page,
 }) => {
   await showFixture(page, multipleSelection());
-  await page.locator('.answer-details > summary').click();
-  await expect(page.locator('.answer-details > h3')).toContainText('A + B');
-  await expect(page.locator('.answer-details > p').first()).toContainText(
+  await expect(page.locator('.answer-overview h2')).toContainText('A + B');
+  await expect(page.locator('.answer-rationale').first()).toContainText(
     'Aはテーブル定義を、BはSQLの実行を担当',
   );
   await expect(page.locator('.multi-answer')).toContainText('組み合わせとして評価：A + B');
@@ -160,10 +159,8 @@ test('unverified evidence stays unknown while switching focused requirements and
   await expect(page.getByText('根拠に要確認の項目があります', { exact: true })).toBeVisible();
   await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
   await expect(page.locator('.evaluation-card.eliminated')).toHaveCount(0);
-  await page
-    .getByRole('navigation', { name: '要件を順に確認' })
-    .getByRole('button', { name: /^要件 1:/ })
-    .click();
+  await page.locator('.studio-requirement').first().click();
+  await page.getByRole('button', { name: '次の要件へ', exact: true }).click();
   await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
   await page.locator('.studio-requirement').filter({ hasText: '運用負荷を最小限に' }).click();
   await expect(verdicts).toHaveText(['情報不足', '情報不足', '情報不足']);
@@ -326,7 +323,10 @@ test('reading notes can be confirmed beside generation without requiring a known
   await page.getByRole('button', { name: /問題を読み取る/ }).click();
   await page.getByLabel('問題文', { exact: true }).fill(`${draft.text}\n確認して修正した条件。`);
   await page.reload();
-  const confirm = page.getByRole('button', { name: '確認して図解を生成する', exact: true });
+  const confirm = page.getByRole('button', {
+    name: '確認して図解を生成する',
+    exact: true,
+  });
   await expect(confirm).toBeEnabled();
   await page.getByLabel('選択肢 B の内容', { exact: true }).fill('');
   await expect(confirm).toBeDisabled();
