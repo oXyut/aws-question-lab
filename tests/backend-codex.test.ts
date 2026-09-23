@@ -13,7 +13,26 @@ import {
   readCliSettings,
 } from '../server/codex.ts';
 import { demoDocument } from '../shared/demo.ts';
-import { validateReferences } from '../shared/schema.ts';
+import { validateReferences, type ExplanationInput } from '../shared/schema.ts';
+
+function requirementWire(explanation: ExplanationInput) {
+  return {
+    ...structuredClone(explanation),
+    requirements: explanation.requirements.map((requirement) => ({
+      ...structuredClone(requirement),
+      checks: Object.fromEntries(explanation.evaluations.map((evaluation) => {
+        const { requirementId: _id, nodeIds: _nodes, edgeIds: _edges, ...check } =
+          evaluation.checks.find((check) => check.requirementId === requirement.id)!;
+        return [evaluation.optionId, structuredClone(check)];
+      })),
+    })),
+    evaluations: Object.fromEntries(
+      explanation.evaluations.map(({ optionId, checks: _checks, ...evaluation }) => [
+        optionId, structuredClone(evaluation),
+      ]),
+    ),
+  };
+}
 
 test('study model defaults independently from Codex configuration and accepts app-specific overrides', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'question-lab-settings-'));
@@ -148,25 +167,16 @@ test('extraction preserves genuine uncertainty for unreadable attachments, missi
 });
 test('question-specific output requires every option and maps it back to the shared array format', async () => {
   const explanation = structuredClone(demoDocument.revisions[0].explanation);
-  const wire = {
-    ...explanation,
-    evaluations: Object.fromEntries(
-      explanation.evaluations.map(({ optionId, checks, ...evaluation }) => [
-        optionId,
-        {
-          ...evaluation,
-          checks: checks.map(({ nodeIds: _nodes, edgeIds: _edges, ...check }) => check),
-        },
-      ]),
-    ),
-  };
+  const wire = requirementWire(explanation);
   const schema = explanationOutputSchema(demoDocument.question);
   assert.doesNotThrow(() => schema.parse(wire));
-  assert.ok(!('nodeIds' in schema.shape.evaluations.shape.a.shape.checks.element.shape));
-  assert.ok(!('edgeIds' in schema.shape.evaluations.shape.a.shape.checks.element.shape));
+  assert.ok(!('checks' in schema.shape.evaluations.shape.a.shape));
   const incomplete = structuredClone(wire);
   delete incomplete.evaluations.b;
   assert.equal(schema.safeParse(incomplete).success, false);
+  const missingCheck = structuredClone(wire);
+  delete missingCheck.requirements[0].checks.b;
+  assert.equal(schema.safeParse(missingCheck).success, false);
   const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
   adapter.run = async (schema) => ({ value: schema.parse(wire), searched: true });
   const result = await adapter.explain(
@@ -184,6 +194,48 @@ test('question-specific output requires every option and maps it back to the sha
     explanation.evaluations[0].checks[0].reason,
   );
   assert.ok(result.value.evaluations[0].checks[0].nodeIds.includes('a-athena'));
+  assert.deepEqual(result.value.requirements, explanation.requirements);
+});
+
+test('generation schema prevents background and preference failures in the emitted JSON schema', async () => {
+  const schema = explanationOutputSchema(demoDocument.question);
+  const json = z.toJSONSchema(schema) as any;
+  const branches = json.properties.requirements.items.anyOf;
+  for (const kind of ['hard', 'preference', 'context'] as const) {
+    const branch = branches.find((branch: any) => branch.properties.kind.const === kind);
+    const verdicts = branch.properties.checks.properties.b.properties.verdict.enum;
+    assert.equal(verdicts.includes('violates'), kind === 'hard');
+    const wire = requirementWire(demoDocument.revisions[0].explanation);
+    wire.requirements[0].kind = kind;
+    wire.requirements[0].checks.b.verdict = 'violates';
+    assert.equal(schema.safeParse(wire).success, kind === 'hard');
+    wire.requirements[0].checks.b.verdict = kind === 'preference' ? 'inferior' : 'unknown';
+    assert.equal(schema.safeParse(wire).success, true);
+  }
+});
+
+test('requirement-first output preserves multiple-choice and freeform contracts', async () => {
+  for (const mode of ['multiple', 'none'] as const) {
+    const question = structuredClone(demoDocument.question);
+    const explanation = structuredClone(demoDocument.revisions[0].explanation);
+    question.selectionMode = mode;
+    question.selectionCount = mode === 'multiple' ? 2 : null;
+    explanation.answerOptionIds = mode === 'multiple' ? ['a', 'b'] : [];
+    question.knownAnswerIds = explanation.answerOptionIds;
+    if (mode === 'none') {
+      question.options = [];
+      explanation.evaluations = [];
+      explanation.architectures.forEach((graph) => { graph.optionIds = []; });
+    }
+    const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+    adapter.run = async (schema) => ({
+      value: schema.parse(requirementWire(explanation)), searched: false,
+    });
+    const result = await adapter.explain(question, new AbortController().signal, () => {});
+    validateReferences(question, result.value);
+    assert.deepEqual(result.value.answerOptionIds, explanation.answerOptionIds);
+    assert.equal(result.value.evaluations.length, question.options.length);
+  }
 });
 test('completion requires missing option and requirement keys and accepts only existing reference IDs', async () => {
   const explanation = structuredClone(demoDocument.revisions[0].explanation);
@@ -329,4 +381,36 @@ test('adapter times out and terminates a hung subprocess', async (t) => {
     ),
     (e: unknown) => (e as { code?: string }).code === 'TIMEOUT',
   );
+});
+
+test('reassessment uses kind-constrained checks and only existing evidence, with no fresh research', async () => {
+  const explanation = structuredClone(demoDocument.revisions[0].explanation);
+  explanation.requirements[0].kind = 'context';
+  explanation.evaluations[1].checks[0].verdict = 'violates';
+  const fixed = structuredClone(explanation.evaluations[1]);
+  fixed.checks[0].verdict = 'unknown';
+  const { optionId, checks, ...evaluation } = fixed;
+  const wire = { evaluations: { [optionId]: {
+    ...evaluation,
+    checks: Object.fromEntries(checks.map(({ requirementId, ...check }) => [requirementId, check])),
+  } } };
+  const adapter = new CodexAdapter('/unused', { executable: 'unused', timeout: 1000 });
+  let calls = 0;
+  adapter.run = async (schema, prompt, images, research) => {
+    calls++;
+    assert.deepEqual(images, []);
+    assert.equal(research, false);
+    assert.match(prompt, /判定の単純な置換や要件のhardへの格上げはせず/);
+    assert.match(prompt, /複数選択は選ばれた組み合わせ/);
+    assert.match(prompt, /根拠不足ならunknown/);
+    const invalid = structuredClone(wire);
+    invalid.evaluations.b.checks[explanation.requirements[0].id].verdict = 'violates';
+    assert.equal(schema.safeParse(invalid).success, false);
+    return { value: schema.parse(wire), searched: false };
+  };
+  const result = await adapter.repairEvaluations(
+    demoDocument.question, explanation, ['b'], new AbortController().signal, () => {},
+  );
+  assert.equal(calls, 1);
+  assert.deepEqual(result, [fixed]);
 });

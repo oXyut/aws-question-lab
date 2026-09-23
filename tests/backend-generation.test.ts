@@ -8,7 +8,8 @@ import { createExecutor } from '../server/generation.ts';
 import { CodexAdapter } from '../server/codex.ts';
 import { JobManager, isTerminal } from '../server/jobs.ts';
 import { demoDocument } from '../shared/demo.ts';
-import type { QuestionDraft } from '../shared/schema.ts';
+import { ExplanationInputSchema, validateReferences, type ExplanationInput, type QuestionDraft } from '../shared/schema.ts';
+import { AppError } from '../server/errors.ts';
 
 test('follow-up generates a full new version and preserves its parent and original question', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'question-lab-generation-'));
@@ -561,4 +562,146 @@ test('CLI performance metrics are saved privately without appearing in public jo
   const document = await storage.document(publicJob.result!.documentId!);
   assert.ok(!JSON.stringify(document).includes('cliMetrics'));
   assert.ok(!JSON.stringify(document).includes('agentMessages'));
+});
+
+for (const kind of ['context', 'preference'] as const) {
+  for (const mode of ['generate', 'resume', 'followup'] as const) {
+    test(`${kind} contradictions are reassessed once during ${mode} without changing facts or valid evaluations`, async (t) => {
+      const root = await mkdtemp(join(tmpdir(), 'question-lab-verdict-'));
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const storage = new Storage(root);
+      await storage.init();
+      const original = structuredClone(demoDocument.revisions[0].explanation);
+      original.requirements[2].kind = kind;
+      original.evaluations[1].checks[2].verdict = 'violates';
+      const before = structuredClone(original);
+      const fixed = structuredClone(original.evaluations[1]);
+      fixed.checks[2].verdict = kind === 'preference' ? 'inferior' : 'unknown';
+      fixed.checks[2].reason = kind === 'preference' ? '運用負荷の比較では不利です。' : '背景情報だけでは不正解と判定しません。';
+      fixed.summary = '取得済みの根拠に基づいて再評価しました。';
+      let repairs = 0;
+      const fake = {
+        explain: async () => {
+          assert.notEqual(mode, 'resume', 'repairable output must not repeat full research');
+          return { value: original, searched: true };
+        },
+        repairEvaluations: async (_question: QuestionDraft, explanation: ExplanationInput, ids: string[]) => {
+          repairs++;
+          assert.deepEqual(ids, ['b']);
+          assert.deepEqual(ExplanationInputSchema.parse(explanation), ExplanationInputSchema.parse(before), 'validation-only neutral verdicts must not reach the model');
+          return [fixed];
+        },
+      } as unknown as CodexAdapter;
+      t.mock.method(globalThis, 'fetch', async () => new Response(
+        original.sources.map((s) => s.excerpt).join('\n'),
+        { headers: { 'content-type': 'text/plain' } },
+      ));
+      if (mode === 'resume') await storage.writeJson('diagnostics', 'previous-conflict', {
+        question: demoDocument.question, rawOutput: original, searched: true,
+        createdAt: new Date().toISOString(),
+      });
+      if (mode === 'followup') await storage.saveDocument(demoDocument);
+      const result = await createExecutor(storage, fake)(
+        mode === 'followup'
+          ? { kind: 'followup', documentId: demoDocument.id, revisionId: demoDocument.revisions[0].id, prompt: '運用負荷を説明してください。' }
+          : { kind: 'generate', question: demoDocument.question, ...(mode === 'resume' ? { resumeDiagnosticId: 'previous-conflict' } : {}) },
+        new AbortController().signal, () => {}, { jobId: 'reassessed' },
+      );
+      assert.equal(repairs, 1);
+      assert.deepEqual(original, before);
+      const saved = (await storage.document(result.documentId!)).revisions.at(-1)!;
+      validateReferences(saved.question, saved.explanation);
+      assert.deepEqual(saved.explanation.evaluations[0], original.evaluations[0]);
+      assert.equal(saved.explanation.evaluations[1].checks[2].verdict, fixed.checks[2].verdict);
+      assert.equal(saved.explanation.evaluations[1].checks[2].reason, fixed.checks[2].reason);
+      for (const field of ['requirements', 'architectures', 'answerOptionIds', 'answerRationale'] as const)
+        assert.deepEqual(saved.explanation[field], original[field]);
+      const diagnostic = await storage.readJson<{
+        rawOutput: ExplanationInput;
+        evaluationRepair: { status: string; requestedOptionIds: string[]; rawOutput: unknown };
+      }>('diagnostics', 'reassessed');
+      assert.deepEqual(diagnostic.rawOutput, before);
+      assert.equal(diagnostic.evaluationRepair.status, 'completed');
+      assert.deepEqual(diagnostic.evaluationRepair.requestedOptionIds, ['b']);
+      assert.deepEqual(diagnostic.evaluationRepair.rawOutput, [fixed]);
+    });
+  }
+}
+
+test('invalid reassessment never publishes output or loops, and cancellation keeps its error code', async (t) => {
+  const invalidOutputs = [
+    () => [],
+    (fixed: ExplanationInput['evaluations'][number]) => [fixed, structuredClone(fixed)],
+    (fixed: ExplanationInput['evaluations'][number]) => [{ ...fixed, optionId: 'a' }],
+    (fixed: ExplanationInput['evaluations'][number]) => [{ ...fixed, checks: [] }],
+    (fixed: ExplanationInput['evaluations'][number]) => {
+      fixed.checks[2].verdict = 'violates'; return [fixed];
+    },
+    (fixed: ExplanationInput['evaluations'][number]) => {
+      fixed.checks[0].sourceIds = ['invented-source']; return [fixed];
+    },
+    () => { throw new AppError('CANCELLED', '生成を中断しました。'); },
+  ];
+  for (const [index, output] of invalidOutputs.entries()) {
+    const root = await mkdtemp(join(tmpdir(), 'question-lab-invalid-verdict-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const storage = new Storage(root);
+    await storage.init();
+    const original = structuredClone(demoDocument.revisions[0].explanation);
+    const fixed = structuredClone(original.evaluations[1]);
+    original.evaluations[1].checks[2].verdict = 'violates';
+    let calls = 0;
+    const fake = {
+      explain: async () => ({ value: original, searched: false }),
+      repairEvaluations: async () => { calls++; return output(fixed); },
+    } as unknown as CodexAdapter;
+    await assert.rejects(
+      createExecutor(storage, fake)(
+        { kind: 'generate', question: demoDocument.question }, new AbortController().signal,
+        () => {}, { jobId: 'failed-reassessment' },
+      ),
+      (error: unknown) => (error as AppError).code === (index === invalidOutputs.length - 1 ? 'CANCELLED' : 'INVALID_REFERENCES'),
+    );
+    assert.equal(calls, 1);
+    assert.deepEqual(await storage.documents(), []);
+    const diagnostic = await storage.readJson<{
+      status: string; evaluationRepair: { status: string; error: { code: string } };
+    }>('diagnostics', 'failed-reassessment');
+    assert.equal(diagnostic.status, 'failed');
+    assert.equal(diagnostic.evaluationRepair.status, 'failed');
+    assert.ok(diagnostic.evaluationRepair.error.code);
+  }
+});
+
+test('verdict reassessment does not hide invalid sources or upgrade unverified evidence', async (t) => {
+  for (const invalidSource of [true, false]) {
+    const root = await mkdtemp(join(tmpdir(), 'question-lab-verdict-evidence-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const storage = new Storage(root);
+    await storage.init();
+    const original = structuredClone(demoDocument.revisions[0].explanation);
+    original.evaluations[1].checks[2].verdict = 'violates';
+    if (invalidSource) original.evaluations[0].checks[0].sourceIds = ['invented-source'];
+    let calls = 0;
+    const fake = {
+      explain: async () => ({ value: original, searched: false }),
+      repairEvaluations: async () => {
+        calls++;
+        return [structuredClone(demoDocument.revisions[0].explanation.evaluations[1])];
+      },
+    } as unknown as CodexAdapter;
+    const execution = createExecutor(storage, fake)(
+      { kind: 'generate', question: demoDocument.question }, new AbortController().signal, () => {},
+    );
+    if (invalidSource) {
+      await assert.rejects(execution, /評価の出典に存在しない参照/);
+      assert.equal(calls, 0);
+    } else {
+      const result = await execution;
+      const saved = (await storage.document(result.documentId!)).revisions[0].explanation;
+      assert.equal(calls, 1);
+      assert.ok(saved.evaluations.every((evaluation) => evaluation.overall === 'unknown'));
+      assert.ok(saved.sources.every((source) => source.status === 'unverified'));
+    }
+  }
 });

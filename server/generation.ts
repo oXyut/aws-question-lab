@@ -18,6 +18,7 @@ import { verifySources } from './sources.ts';
 import { Storage, makeId } from './storage.ts';
 import type { Executor } from './jobs.ts';
 import { repairDisplayReferences, type DisplayReferenceRepair } from './reference-repair.ts';
+import { findVerdictConflicts, verdictValidationCopy } from './evaluation-repair.ts';
 
 type GenerationDiagnostic = {
   schemaVersion: 1;
@@ -42,6 +43,13 @@ type GenerationDiagnostic = {
     error?: { code: string; message: string };
   };
   completedOutput?: ExplanationInput;
+  evaluationRepair?: {
+    conflicts: ReturnType<typeof findVerdictConflicts>;
+    requestedOptionIds: string[];
+    status: 'requested' | 'completed' | 'failed';
+    rawOutput?: unknown;
+    error?: { code: string; message: string };
+  };
   sourceVerification?: Source[];
   error?: { code: string; message: string };
   result?: { documentId: string; revisionId: string };
@@ -227,8 +235,58 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
         );
       await saveDiagnostic();
       try {
+        const conflicts = findVerdictConflicts(repaired.explanation);
+        if (conflicts.length) {
+          // Validate everything else before paying for a bounded reassessment.
+          validateReferences(question, verdictValidationCopy(repaired.explanation));
+          const requestedOptionIds = [...new Set(conflicts.map((conflict) => conflict.optionId))];
+          diagnostic!.evaluationRepair = { conflicts, requestedOptionIds, status: 'requested' };
+          await saveDiagnostic();
+          progress('repairing', '要件の分類と矛盾する判定を検出したため、該当する選択肢を再評価しています。');
+          try {
+            const output = await cli.repairEvaluations(
+              question,
+              structuredClone(repaired.explanation),
+              requestedOptionIds,
+              signal,
+              (_stage, message) => progress('repairing', message),
+            );
+            diagnostic!.evaluationRepair.rawOutput = output;
+            await saveDiagnostic();
+            const parsed = EvaluationSchema.array().safeParse(output);
+            if (
+              !parsed.success ||
+              parsed.data.length !== requestedOptionIds.length ||
+              new Set(parsed.data.map((evaluation) => evaluation.optionId)).size !== requestedOptionIds.length ||
+              parsed.data.some((evaluation) => !requestedOptionIds.includes(evaluation.optionId))
+            ) throw new Error('再評価の選択肢が指定された対象と一致しません');
+            const candidate = repairDisplayReferences({
+              ...repaired.explanation,
+              evaluations: repaired.explanation.evaluations.map((evaluation) =>
+                parsed.data.find((updated) => updated.optionId === evaluation.optionId) ?? evaluation,
+              ),
+            });
+            validateReferences(question, candidate.explanation);
+            repaired.explanation = candidate.explanation;
+            repaired.repairs.push(...candidate.repairs);
+            repaired.explanation.caveats.push(
+              `要件の分類と矛盾していた${requestedOptionIds.length}件の選択肢評価を、取得済みの資料から再評価しました。`,
+            );
+            diagnostic!.repairedOutput = repaired.explanation;
+            diagnostic!.evaluationRepair.status = 'completed';
+            await saveDiagnostic();
+          } catch (error) {
+            diagnostic!.evaluationRepair.status = 'failed';
+            diagnostic!.evaluationRepair.error = {
+              code: error instanceof AppError ? error.code : 'INVALID_REFERENCES',
+              message: error instanceof Error ? error.message : 'Unknown reassessment failure',
+            };
+            throw error;
+          }
+        }
         validateReferences(question, repaired.explanation);
       } catch (error) {
+        if (error instanceof AppError) throw error;
         throw new AppError(
           'INVALID_REFERENCES',
           `生成された解説の関連付けを検証できませんでした：${(error as Error).message}。診断ID: ${diagnosticId}。`,
@@ -307,7 +365,7 @@ export function createExecutor(storage: Storage, cli: CodexAdapter): Executor {
   };
 }
 
-/** Resume only fresh output whose remaining failures can actually be repaired locally. */
+/** Resume only fresh output whose remaining failures have a bounded recovery path. */
 async function restoreRecentExplanation(storage: Storage, id: string, question: QuestionDraft) {
   try {
     const saved = await storage.readJson<Partial<GenerationDiagnostic>>('diagnostics', id);
@@ -325,7 +383,7 @@ async function restoreRecentExplanation(storage: Storage, id: string, question: 
       ages.some((age) => !Number.isFinite(age) || age < 0 || age > 15 * 60 * 1000)
     )
       return null;
-    const validationCopy = repairDisplayReferences(raw.data).explanation;
+    const validationCopy = verdictValidationCopy(repairDisplayReferences(raw.data).explanation);
     const evaluatedIds = new Set(
       validationCopy.evaluations.map((evaluation) => evaluation.optionId),
     );
@@ -362,7 +420,7 @@ async function restoreRecentExplanation(storage: Storage, id: string, question: 
       metrics: saved.cliMetrics,
     };
   } catch {
-    // Missing/corrupt/expired or semantically invalid output needs fresh research.
+    // Missing/corrupt/expired or otherwise invalid output needs fresh research.
     return null;
   }
 }

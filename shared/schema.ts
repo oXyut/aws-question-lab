@@ -52,6 +52,11 @@ export const RequirementSchema = z.object({
 });
 export type Requirement = z.infer<typeof RequirementSchema>;
 
+/** Shared by constrained model output and the final semantic validator. */
+export function verdictSchemaForRequirement(kind: Requirement['kind']) {
+  return kind === 'hard' ? VerdictSchema : z.enum(['meets', 'inferior', 'unknown']);
+}
+
 export const ArchitectureSchema = z.object({
   id: Id,
   title: z.string(),
@@ -329,7 +334,7 @@ export function validateReferences(
         );
       }
       const requirement = explanation.requirements.find((r) => r.id === check.requirementId)!;
-      if (requirement.kind !== 'hard' && check.verdict === 'violates')
+      if (!verdictSchemaForRequirement(requirement.kind).safeParse(check.verdict).success)
         throw new Error('比較条件・背景情報を必須要件違反にできません');
     }
   }
