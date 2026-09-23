@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 export const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
+export const ModelSchema = z.enum(['gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra']);
+export type ModelName = z.infer<typeof ModelSchema>;
+export const DEFAULT_MODEL: ModelName = 'gpt-6-luna';
 export const VerdictSchema = z.enum(['meets', 'violates', 'inferior', 'unknown']);
 export type Verdict = z.infer<typeof VerdictSchema>;
 export const verdictLabels: Record<Verdict, string> = {

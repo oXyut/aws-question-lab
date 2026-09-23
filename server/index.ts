@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { DEFAULT_MODEL } from '../shared/schema.ts';
 import { getRequestListener } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
@@ -16,7 +17,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error('PORTは1〜65535の整数を指定してください。');
 const storage = new Storage(dataRoot);
 await storage.init();
-const cli = new CodexAdapter(join(dataRoot, 'runtime'), await readCliSettings());
+const settings = await readCliSettings();
+settings.model = await storage.selectedModel(settings.model || DEFAULT_MODEL);
+const cli = new CodexAdapter(join(dataRoot, 'runtime'), settings);
 const jobs = new JobManager(storage, createExecutor(storage, cli));
 await jobs.init();
 const app = createApp({ storage, cli, jobs });

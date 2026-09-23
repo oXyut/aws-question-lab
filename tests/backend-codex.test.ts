@@ -15,7 +15,7 @@ import {
 import { demoDocument } from '../shared/demo.ts';
 import { validateReferences } from '../shared/schema.ts';
 
-test('study effort defaults to low while retaining the configured model and explicit app overrides', async (t) => {
+test('study model defaults independently from Codex configuration and accepts app-specific overrides', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'question-lab-settings-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(
@@ -23,14 +23,15 @@ test('study effort defaults to low while retaining the configured model and expl
     'model = "configured-model"\nmodel_reasoning_effort = "high"\n[plugins]\nignored=true\n',
   );
   const defaults = await readCliSettings({ CODEX_HOME: root });
-  assert.equal(defaults.model, 'configured-model');
+  assert.equal(defaults.model, 'gpt-6-luna');
   assert.equal(defaults.effort, 'low');
   const override = await readCliSettings({
     CODEX_HOME: root,
-    CODEX_MODEL: 'chosen-model',
+    CODEX_MODEL: 'gpt-6-astra',
+    QUESTION_LAB_MODEL: 'gpt-6-sol',
     CODEX_REASONING_EFFORT: 'high',
   });
-  assert.equal(override.model, 'chosen-model');
+  assert.equal(override.model, 'gpt-6-sol');
   assert.equal(override.effort, 'high');
 });
 

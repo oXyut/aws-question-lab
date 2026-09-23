@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import {
   ExplanationDocumentSchema,
   Id,
+  ModelSchema,
+  type ModelName,
   type ExplanationDocument,
   type DocumentSummary,
 } from '../shared/schema.ts';
@@ -23,6 +25,26 @@ export class Storage {
         mkdir(join(this.root, d), { recursive: true, mode: 0o700 }),
       ),
     );
+  }
+  async selectedModel(fallback: ModelName): Promise<ModelName> {
+    try {
+      const settings = JSON.parse(await readFile(join(this.root, 'settings.json'), 'utf8'));
+      const parsed = ModelSchema.safeParse(settings.model);
+      return parsed.success ? parsed.data : fallback;
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code === 'ENOENT' ||
+        error instanceof SyntaxError
+      )
+        return fallback;
+      throw error;
+    }
+  }
+  async saveSelectedModel(model: ModelName) {
+    const target = join(this.root, 'settings.json');
+    const temp = `${target}.${makeId()}.tmp`;
+    await writeFile(temp, JSON.stringify({ model }), { mode: 0o600 });
+    await rename(temp, target);
   }
   async writeJson(area: 'documents' | 'jobs' | 'diagnostics', id: string, value: unknown) {
     const target = join(this.root, area, `${validId(id)}.json`);

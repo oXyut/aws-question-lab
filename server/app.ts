@@ -2,7 +2,13 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
-import { QuestionDraftSchema, Id, validateQuestion, type GenerationJob } from '../shared/schema.ts';
+import {
+  QuestionDraftSchema,
+  Id,
+  ModelSchema,
+  validateQuestion,
+  type GenerationJob,
+} from '../shared/schema.ts';
 import { Storage } from './storage.ts';
 import { JobManager, isTerminal } from './jobs.ts';
 import { CodexAdapter } from './codex.ts';
@@ -86,6 +92,13 @@ export function createApp({ storage, jobs, cli }: AppDependencies) {
     );
   });
   app.get('/api/health', async (c) => c.json(await cli.health(jobs.activeJobId)));
+  app.put('/api/settings/model', async (c) => {
+    jobs.assertAvailable();
+    const { model } = validated(z.object({ model: ModelSchema }), await c.req.json());
+    await storage.saveSelectedModel(model);
+    cli.setModel(model);
+    return c.json(await cli.health(jobs.activeJobId));
+  });
   app.post('/api/extract', async (c) => {
     jobs.assertAvailable();
     const form = await c.req.formData();

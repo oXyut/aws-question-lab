@@ -19,4 +19,4 @@ Service icons module `shared/icons.ts`: exports `serviceIcons:Record<string,stri
 
 Fixtures: `shared/demo.ts` exports `demoDocument:ExplanationDocument`; this is clearly labeled fictional/sample material, never presented as a newly generated result.
 
-Runtime default port 4317, loopback only. Store private JSON/images in `.local/` or QUESTION_LAB_DATA_DIR. Model override CODEX_MODEL; otherwise reuse configured model only, avoiding loading arbitrary user tools/hooks. Authentication stays with installed Codex. No fake success or fake generation percent.
+Runtime default port 4317, loopback only. Store private JSON/images/settings in `.local/` or QUESTION_LAB_DATA_DIR. Model selection is `gpt-6-luna` by default and persists in `.local/settings.json`; it is independent from Codex CLI model configuration. `QUESTION_LAB_MODEL` only sets the initial model when no saved choice exists. Authentication stays with installed Codex. No fake success or fake generation percent.

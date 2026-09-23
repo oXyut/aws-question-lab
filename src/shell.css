@@ -358,6 +358,31 @@
   margin: 6px 0 0;
   overflow-wrap: anywhere;
 }
+.workbench-shell .workspace-facts dd select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 34px 8px 11px;
+  border: 1px solid var(--color-divider);
+  border-radius: 9px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text-primary, #192f49);
+  font: inherit;
+}
+.workbench-shell .workspace-facts dd select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 2px;
+}
+.workbench-shell .workspace-facts dd select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.workbench-shell .model-setting-note {
+  display: block;
+  margin-top: 7px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
 .workbench-shell .connection-help {
   font-size: 12px;
   line-height: 1.9;

@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -11,6 +10,9 @@ import {
   type Evaluation,
   type Health,
   type QuestionDraft,
+  DEFAULT_MODEL,
+  ModelSchema,
+  type ModelName,
   type ExplanationInput,
 } from '../shared/schema.ts';
 import { AppError } from './errors.ts';
@@ -25,7 +27,12 @@ export type CliMetrics = {
   usage?: { inputTokens: number; outputTokens: number };
 };
 export type CliResult<T> = { value: T; searched: boolean; metrics?: CliMetrics };
-export type CliSettings = { executable: string; model?: string; effort?: string; timeout: number };
+export type CliSettings = {
+  executable: string;
+  model?: ModelName;
+  effort?: string;
+  timeout: number;
+};
 
 // Coding-agent preambles are wasteful under a JSON response schema: they can
 // expand into a complete document before research, then be generated again.
@@ -95,21 +102,11 @@ export function evaluationCompletionSchema(explanation: ExplanationInput, missin
 }
 
 export async function readCliSettings(env: NodeJS.ProcessEnv = process.env): Promise<CliSettings> {
-  let model: string | undefined;
-  try {
-    const text = await readFile(
-      join(env.CODEX_HOME || join(homedir(), '.codex'), 'config.toml'),
-      'utf8',
-    );
-    // Only root-level strings are reused. Plugins, hooks, MCP servers and profiles are never loaded.
-    const root = text.split(/^\s*\[/m)[0];
-    model = root.match(/^\s*model\s*=\s*"([^"\r\n]+)"/m)?.[1];
-  } catch {
-    /* Codex can use its own model default when no config exists. */
-  }
+  const model = ModelSchema.safeParse(env.QUESTION_LAB_MODEL);
   return {
     executable: env.CODEX_BIN || 'codex',
-    model: env.CODEX_MODEL || model,
+    // This app's model choice is independent of ~/.codex/config.toml and CODEX_MODEL.
+    model: model.success ? model.data : DEFAULT_MODEL,
     // Interactive study should not inherit a coding task's high/xhigh effort.
     // An explicit application override is still honored without changing Codex itself.
     effort: env.CODEX_REASONING_EFFORT || 'low',
@@ -121,6 +118,16 @@ export function safeCliError(
   raw: string,
   fallback = 'Codexの実行に失敗しました。再試行してください。',
 ): AppError {
+  if (
+    /requires a newer version of codex|newer version of codex.{0,80}required|upgrade.{0,80}codex.{0,40}cli/i.test(
+      raw,
+    )
+  )
+    return new AppError(
+      'CLI_OUTDATED',
+      'Codex CLIが古く、選択中のモデルを実行できません。ターミナルで codex update を実行してから再試行してください。',
+      503,
+    );
   if (/quota|usage limit|rate.limit|exceeded.*limit|insufficient_quota|usage_limit/i.test(raw))
     return new AppError(
       'USAGE_LIMIT',
@@ -146,7 +153,7 @@ export function safeCliError(
   if (/model.*(not found|not supported|unavailable)|unknown model/i.test(raw))
     return new AppError(
       'MODEL_UNAVAILABLE',
-      '設定されたCodexモデルを利用できません。CODEX_MODELの設定を確認してください。',
+      '選択されたモデルを利用できません。接続画面で使用するモデルを変更してください。',
       503,
     );
   return new AppError('CODEX_FAILED', fallback, 503);
@@ -254,12 +261,15 @@ export class CodexAdapter {
     readonly runtimeRoot: string,
     readonly settings: CliSettings,
   ) {}
+  setModel(model: ModelName) {
+    this.settings.model = model;
+  }
   async health(activeJobId: string | null): Promise<Health> {
     const base = {
       ok: true,
       codexAvailable: false,
       authenticated: false,
-      model: this.settings.model || 'Codex既定モデル',
+      model: this.settings.model || DEFAULT_MODEL,
       activeJobId,
       message: '',
     };

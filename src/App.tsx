@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { QuestionDraftSchema } from '../shared/schema';
+import { DEFAULT_MODEL, ModelSchema, type ModelName } from '../shared/schema';
 import type {
   DocumentSummary,
   ExplanationDocument,
@@ -309,6 +310,7 @@ export default function App() {
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [modelSaving, setModelSaving] = useState(false);
   const [loadingDocument, setLoadingDocument] = useState(false);
   const [followup, setFollowup] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -403,6 +405,23 @@ export default function App() {
       return null;
     }
   }, []);
+  const saveModel = useCallback(async (model: ModelName) => {
+    setModelSaving(true);
+    try {
+      const result = await api<Health>('/api/settings/model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      setHealth(result);
+      setToast('使用するモデルを保存しました。');
+    } catch (err) {
+      setError(errorMessage(err));
+      void refreshHealth();
+    } finally {
+      setModelSaving(false);
+    }
+  }, [refreshHealth]);
   useEffect(() => {
     void refreshHealth().then((result) => {
       const previousJob = result?.activeJobId ?? saved.jobId;
@@ -964,7 +983,25 @@ export default function App() {
             </div>
             <div>
               <dt>使用するモデル</dt>
-              <dd>{health?.model || '設定済みのモデル'}</dd>
+              <dd>
+                <select
+                  id="question-lab-model"
+                  aria-label="使用するモデル"
+                  value={ModelSchema.safeParse(health?.model).success ? health!.model : DEFAULT_MODEL}
+                  disabled={!ready || busy || modelSaving}
+                  onChange={(event) => {
+                    const parsed = ModelSchema.safeParse(event.target.value);
+                    if (parsed.success) void saveModel(parsed.data);
+                  }}
+                >
+                  <option value="gpt-6-luna">GPT-6 Luna（既定・軽快）</option>
+                  <option value="gpt-6-sol">GPT-6 Sol（バランス）</option>
+                  <option value="gpt-6-astra">GPT-6 Astra（高性能）</option>
+                </select>
+                <small className="model-setting-note">
+                  この選択はCodex CLIのモデル設定とは独立して保存されます。
+                </small>
+              </dd>
             </div>
             <div>
               <dt>データの保存先</dt>
