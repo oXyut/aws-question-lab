@@ -264,6 +264,8 @@ test('generation, follow-up revisions, history and a genuinely offline HTML expo
   await expect(page.getByLabel('問題文', { exact: true })).toHaveValue(demoQuestion.text);
   await page.getByRole('button', { name: /図解を生成する/ }).click();
   await expect(page.locator('.react-flow__node')).toHaveCount(4);
+  await expect(page.locator('.document-utilitybar')).toBeFocused();
+  await expect(page.getByRole('heading', { name: '構成図', exact: true })).toBeInViewport();
   await page.locator('.followup-examples > summary').click();
   await page.getByRole('button', { name: '処理の流れをもっと詳しく教えて', exact: true }).click();
   await expect(page.getByLabel('追加質問', { exact: true })).toHaveValue(

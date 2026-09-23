@@ -316,6 +316,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
   const deleteDialogRef = useRef<HTMLElement>(null);
   const [historyQuery, setHistoryQuery] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -383,6 +384,11 @@ export default function App() {
   }, [drawerOpen, sidebarOpen, connectionOpen, deleteId]);
   const revision =
     document?.revisions.find((r) => r.id === revisionId) ?? document?.revisions.at(-1);
+  useEffect(() => {
+    if (!document || demo) return;
+    resultRef.current?.scrollIntoView({ block: 'start' });
+    resultRef.current?.focus({ preventScroll: true });
+  }, [document?.id, revision?.id, demo]);
   const refreshHistory = useCallback(async () => {
     const result = await api<{ documents: DocumentSummary[] }>('/api/documents');
     setHistory(result.documents);
@@ -1034,7 +1040,7 @@ export default function App() {
           <>
             <h1 className="sr-only">{revision.explanation.title}</h1>
             {!demo && (
-              <div className="document-utilitybar">
+              <div className="document-utilitybar" ref={resultRef} tabIndex={-1}>
                 <div className="document-version-picker">
                   <label htmlFor="document-revision">解説の版</label>
                   <select

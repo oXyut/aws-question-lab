@@ -580,7 +580,8 @@
     padding: 0;
   }
 }
-.workbench-shell .generation-progress {
+.workbench-shell .generation-progress,
+.workbench-shell .document-utilitybar {
   scroll-margin-top: 90px;
 }
 .workbench-shell .draft-review {
