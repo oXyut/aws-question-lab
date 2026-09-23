@@ -374,3 +374,19 @@
     width: 4px;
   }
 }
+@media (min-width: 1100px) and (max-height: 850px) {
+  .workbench-shell.has-input > .main-content {
+    padding-top: calc(var(--shell-header-height) + var(--space-5));
+  }
+  .workbench-shell .input-heading {
+    margin-bottom: var(--space-4);
+  }
+  .workbench-shell .input-card-heading,
+  .workbench-shell .input-card-footer {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-3);
+  }
+  .workbench-shell .question-input-area textarea {
+    height: 180px;
+  }
+}

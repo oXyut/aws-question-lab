@@ -1144,7 +1144,7 @@ export default function App() {
                       value={text}
                       onChange={(event) => setText(event.target.value)}
                       placeholder={
-                        'ここに問題文と選択肢を貼り付け\n\nA. 最初の選択肢\nB. 次の選択肢\n\nスクリーンショットだけでも読み取れます。'
+                        'ここに問題文をそのまま貼り付け\n\nA. 最初の選択肢\nB. 次の選択肢'
                       }
                       maxLength={30000}
                       disabled={busy}

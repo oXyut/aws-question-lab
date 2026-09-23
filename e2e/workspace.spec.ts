@@ -406,6 +406,8 @@ test('question intake keeps the primary task readable at phone, tablet and deskt
     if (width === 1440) await expect(readButton).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`intake-${width}.png`), fullPage: true });
   }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(readButton).toBeInViewport();
   await page.getByText('正解・元の解説を追加する（任意）', { exact: true }).press('Enter');
   await expect(page.getByLabel('入力された正解', { exact: true })).toBeVisible();
   await page.getByLabel('入力された正解', { exact: true }).fill('A');
